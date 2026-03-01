@@ -21,7 +21,7 @@ import { useBotStore } from '@/src/stores/useBotStore';
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { setServer, connect, saveServer, isLoading, error } = useBotStore();
+    const { connect, error } = useBotStore();
 
     // 表单状态
     const [name, setName] = useState('我的 Bot');          // Bot 显示名称
@@ -30,9 +30,12 @@ export default function LoginScreen() {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [localError, setLocalError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // 处理连接
     const handleConnect = async () => {
+        if (isSubmitting) return;
+
         // 输入验证
         if (!url.trim()) {
             setLocalError('请输入服务器地址');
@@ -49,21 +52,18 @@ export default function LoginScreen() {
 
         setLocalError('');
 
-        // 构造服务器配置
-        const server = {
-            id: Date.now().toString(),
-            name: name.trim() || '我的 Bot',
-            url: url.trim().replace(/\/$/, ''), // 去掉尾部斜杠
-            username: username.trim(),
-        };
+        setIsSubmitting(true);
+        try {
+            // 使用新的 connect 方法（内部自动创建 server 配置和保存）
+            const cleanUrl = url.trim().replace(/\/$/, '');
+            const success = await connect(cleanUrl, username.trim(), password);
 
-        // 使用新的 connect 方法（内部自动创建 server 配置和保存）
-        const cleanUrl = url.trim().replace(/\/$/, '');
-        const success = await connect(cleanUrl, username.trim(), password);
-
-        if (success) {
-            // 返回上一页
-            router.back();
+            if (success) {
+                // 返回上一页
+                router.back();
+            }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -170,18 +170,18 @@ export default function LoginScreen() {
 
                 {/* 连接按钮 */}
                 <TouchableOpacity
-                    style={[styles.connectButton, isLoading && styles.connectButtonDisabled]}
+                    style={[styles.connectButton, isSubmitting && styles.connectButtonDisabled]}
                     onPress={handleConnect}
-                    disabled={isLoading}
+                    disabled={isSubmitting}
                     activeOpacity={0.8}
                 >
-                    {isLoading ? (
+                    {isSubmitting ? (
                         <ActivityIndicator color="#FFF" size="small" />
                     ) : (
                         <Ionicons name="flash-outline" size={20} color="#FFF" />
                     )}
                     <Text style={styles.connectButtonText}>
-                        {isLoading ? '连接中...' : '连接'}
+                        {isSubmitting ? '连接中...' : '连接'}
                     </Text>
                 </TouchableOpacity>
 

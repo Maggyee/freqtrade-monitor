@@ -70,7 +70,7 @@ export interface Trade {
     enter_tag?: string;
     exit_reason?: string;
     amount: number;               // 交易数量
-    trade_duration?: number;      // 持仓时长（秒）
+    trade_duration?: number;      // 持仓时长（分钟）
     profit_ratio?: number;        // 利润比率（历史交易）
     sell_reason?: string;         // 旧版卖出原因
 }
@@ -116,6 +116,13 @@ export interface BotState {
     trading_mode: string;
     runmode: string;
     bot_name: string;
+    stake_currency?: string;
+    max_open_trades?: number;
+    stoploss?: number;
+    trailing_stop?: boolean;
+    trailing_stop_positive?: number;
+    dry_run?: boolean;
+    minimal_roi?: Record<string, number>;
 }
 
 // 性能统计
@@ -378,6 +385,33 @@ class FreqtradeClient {
     }
 
     /**
+     * 获取历史 K 线数据 - GET /api/v1/pair_history
+     * 通过 Freqtrade Bot 的交易所连接获取任意时间周期的数据
+     * @param pair 交易对
+     * @param timeframe 时间周期
+     * @param strategy 策略名称
+     */
+    async getPairHistory(
+        pair: string,
+        timeframe: string,
+        strategy: string,
+    ): Promise<PairCandles> {
+        // 计算最近 3 天的时间范围
+        const now = new Date();
+        const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+        const fmt = (d: Date) =>
+            `${d.getFullYear()}${(d.getMonth() + 1).toString().padStart(2, '0')}${d.getDate().toString().padStart(2, '0')}`;
+        const timerange = `${fmt(start)}-`;
+
+        console.log(`📊 pair_history GET: pair=${pair}, tf=${timeframe}, strategy=${strategy}, range=${timerange}`);
+
+        const { data } = await this.client.get('/api/v1/pair_history', {
+            params: { pair, timeframe, strategy, timerange },
+        });
+        return data;
+    }
+
+    /**
      * 将 PairCandles 的原始 columns + data 格式解析为结构化的 CandleData 数组
      * Freqtrade API 返回的是列名数组 + 二维数据数组的格式（类似 pandas DataFrame）
      * 这个方法将其转换为每根蜡烛一个对象的格式，方便图表组件使用
@@ -386,7 +420,10 @@ class FreqtradeClient {
         const { columns, data: rawData } = pairCandles;
 
         // 找到每个关键列在 columns 数组中的索引
-        const dateIdx = columns.indexOf('date');
+        // 注意：Freqtrade 的 _convert_dataframe_to_dict 会添加 __date_ts 列
+        // __date_ts 是秒级时间戳（从 nanoseconds 转换），date 是 datetime 字符串
+        const dateTsIdx = columns.indexOf('__date_ts');   // 优先使用秒级时间戳
+        const dateIdx = columns.indexOf('date');           // 后备：datetime 字符串
         const openIdx = columns.indexOf('open');
         const highIdx = columns.indexOf('high');
         const lowIdx = columns.indexOf('low');
@@ -394,19 +431,31 @@ class FreqtradeClient {
         const volumeIdx = columns.indexOf('volume');
 
         // 如果找不到必要的列，返回空数组
-        if (dateIdx === -1 || openIdx === -1 || closeIdx === -1) {
+        if ((dateTsIdx === -1 && dateIdx === -1) || openIdx === -1 || closeIdx === -1) {
             console.warn('⚠️ K 线数据列名缺失:', columns);
             return [];
         }
 
-        return rawData.map(row => ({
-            date: Number(row[dateIdx]),               // 时间戳
-            open: Number(row[openIdx]),                // 开盘价
-            high: highIdx !== -1 ? Number(row[highIdx]) : Number(row[openIdx]),   // 最高价
-            low: lowIdx !== -1 ? Number(row[lowIdx]) : Number(row[closeIdx]),     // 最低价
-            close: Number(row[closeIdx]),              // 收盘价
-            volume: volumeIdx !== -1 ? Number(row[volumeIdx]) : 0,               // 成交量
-        }));
+        return rawData.map(row => {
+            // 解析时间戳：优先用 __date_ts（秒级），否则用 date 字符串解析
+            let timestamp: number;
+            if (dateTsIdx !== -1) {
+                // __date_ts 是秒级时间戳，转换为毫秒
+                timestamp = Number(row[dateTsIdx]) * 1000;
+            } else {
+                // date 是 datetime 字符串，解析为毫秒时间戳
+                timestamp = new Date(String(row[dateIdx])).getTime();
+            }
+
+            return {
+                date: timestamp,
+                open: Number(row[openIdx]),
+                high: highIdx !== -1 ? Number(row[highIdx]) : Number(row[openIdx]),
+                low: lowIdx !== -1 ? Number(row[lowIdx]) : Number(row[closeIdx]),
+                close: Number(row[closeIdx]),
+                volume: volumeIdx !== -1 ? Number(row[volumeIdx]) : 0,
+            };
+        });
     }
 
     /** 获取开放交易数量 - GET /api/v1/count */
@@ -482,3 +531,54 @@ class FreqtradeClient {
 }
 
 export default FreqtradeClient;
+
+/**
+ * 直接从交易所公开 API 获取 K 线数据（不需要 Freqtrade）
+ * 目前支持 Binance 现货 + 合约市场
+ * 
+ * @param pair Freqtrade 格式的交易对，如 "SOL/USDT:USDT" 或 "BTC/USDT"
+ * @param timeframe 时间周期，如 "1m", "5m", "15m", "1h", "4h", "1d"
+ * @param limit 返回蜡烛数量（默认 100）
+ * @returns CandleData 数组
+ */
+export async function fetchExchangeCandles(
+    pair: string,
+    timeframe: string,
+    limit: number = 100,
+    proxyBaseUrl?: string,
+): Promise<CandleData[]> {
+    // 解析 Freqtrade 格式的交易对
+    // "SOL/USDT:USDT" → symbol="SOLUSDT", 使用合约 API
+    // "BTC/USDT" → symbol="BTCUSDT", 使用现货 API
+    const isFutures = pair.includes(':');
+    const cleanPair = pair.split(':')[0];                    // 去掉 :USDT 部分
+    const symbol = cleanPair.replace('/', '');               // "SOL/USDT" → "SOLUSDT"
+
+    // 如果有代理地址走代理（解决国内无法直连），否则直连 Binance
+    const path = isFutures ? '/fapi/v1/klines' : '/api/v3/klines';
+    const base = proxyBaseUrl
+        ? proxyBaseUrl.replace(/\/$/, '') + path
+        : (isFutures ? 'https://fapi.binance.com' + path : 'https://api.binance.com' + path);
+    const url = `${base}?symbol=${symbol}&interval=${timeframe}&limit=${limit}`
+
+    console.log(`📊 获取 K 线: ${url}`);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`交易所 API 错误: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // Binance K 线返回格式：
+    // [openTime, open, high, low, close, volume, closeTime, ...]
+    // 每个元素是一个数组
+    return data.map((kline: any[]) => ({
+        date: Number(kline[0]),                    // 开盘时间（毫秒时间戳）
+        open: parseFloat(kline[1]),                // 开盘价
+        high: parseFloat(kline[2]),                // 最高价
+        low: parseFloat(kline[3]),                 // 最低价
+        close: parseFloat(kline[4]),               // 收盘价
+        volume: parseFloat(kline[5]),              // 成交量
+    }));
+}

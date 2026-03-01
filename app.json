@@ -4,6 +4,7 @@
     "slug": "freqtrade-monitor",
     "version": "1.0.0",
     "orientation": "portrait",
+    "backgroundColor": "#070B14",
     "icon": "./assets/images/icon.png",
     "scheme": "freqtrademonitor",
     "userInterfaceStyle": "dark",
@@ -20,6 +21,15 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       }
+    },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#070B14",
+      "translucent": false
+    },
+    "androidNavigationBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#070B14"
     },
     "plugins": [
       "expo-router",

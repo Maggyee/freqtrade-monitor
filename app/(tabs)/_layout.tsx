@@ -6,24 +6,21 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Animated, Pressable } from 'react-native';
 import { useRef } from 'react';
-import * as Haptics from 'expo-haptics';
 import { Colors } from '@/constants/Colors';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
-// 自定义动画 + 震动反馈的底部 Tab 按钮
+// 自定义动画的底部 Tab 按钮
 const AnimatedTabBarButton = (props: any) => {
   const { children, onPress, accessibilityState } = props;
   const isSelected = accessibilityState?.selected;
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
     Animated.spring(scale, {
-      toValue: 0.88,
+      toValue: 0.92,
       useNativeDriver: true,
-      speed: 60,
-      bounciness: 5,
+      speed: 80,
+      bounciness: 0,
     }).start();
   };
 
@@ -31,8 +28,8 @@ const AnimatedTabBarButton = (props: any) => {
     Animated.spring(scale, {
       toValue: 1,
       useNativeDriver: true,
-      speed: 60,
-      bounciness: 5,
+      speed: 80,
+      bounciness: 0,
     }).start();
   };
 
@@ -52,9 +49,14 @@ const AnimatedTabBarButton = (props: any) => {
 };
 
 export default function TabLayout() {
+  const language = useI18nStore((s) => s.language);
+
   return (
     <Tabs
       screenOptions={{
+        sceneStyle: {
+          backgroundColor: Colors.dark.background,
+        },
         // Tab 栏样式 - 优化高度与质感
         tabBarStyle: {
           backgroundColor: Colors.dark.tabBar,
@@ -96,9 +98,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: '仪表盘',
-          headerTitle: '总览',
-          tabBarLabel: '首页',
+          title: language === 'en' ? 'Dashboard' : '仪表盘',
+          headerTitle: language === 'en' ? 'Overview' : '总览',
+          tabBarLabel: language === 'en' ? 'Home' : '首页',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="grid" size={size - 2} color={color} />
           ),
@@ -109,9 +111,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="trades"
         options={{
-          title: '交易',
-          headerTitle: '交易管理',
-          tabBarLabel: '交易',
+          title: language === 'en' ? 'Trades' : '交易',
+          headerTitle: language === 'en' ? 'Trade Manager' : '交易管理',
+          tabBarLabel: language === 'en' ? 'Trades' : '交易',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="swap-horizontal" size={size - 2} color={color} />
           ),
@@ -122,9 +124,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: '历史',
-          headerTitle: '历史记录',
-          tabBarLabel: '历史',
+          title: language === 'en' ? 'History' : '历史',
+          headerTitle: language === 'en' ? 'Trade History' : '历史记录',
+          tabBarLabel: language === 'en' ? 'History' : '历史',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="time" size={size - 2} color={color} />
           ),
@@ -135,9 +137,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: '设置',
-          headerTitle: '设置中心',
-          tabBarLabel: '设置',
+          title: language === 'en' ? 'Settings' : '设置',
+          headerTitle: language === 'en' ? 'Settings Center' : '设置中心',
+          tabBarLabel: language === 'en' ? 'Settings' : '设置',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings" size={size - 2} color={color} />
           ),

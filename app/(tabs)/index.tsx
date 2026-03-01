@@ -19,9 +19,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const language = useI18nStore((s) => s.language);
+  const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const {
     isConnected,
     isLoading,
@@ -72,15 +75,15 @@ export default function DashboardScreen() {
           <View style={styles.emptyIconWrap}>
             <Ionicons name="analytics" size={48} color={Colors.dark.primary} />
           </View>
-          <Text style={styles.emptyTitle}>欢迎使用 Freqtrade</Text>
-          <Text style={styles.emptySubtitle}>连接你的机器人开始监控交易</Text>
+          <Text style={styles.emptyTitle}>{t('欢迎使用 Freqtrade', 'Welcome to Freqtrade')}</Text>
+          <Text style={styles.emptySubtitle}>{t('连接你的机器人开始监控交易', 'Connect your bot to start monitoring')}</Text>
           <TouchableOpacity
             style={styles.connectButton}
             onPress={() => router.push('/login')}
             activeOpacity={0.8}
           >
             <Ionicons name="link" size={18} color="#FFF" />
-            <Text style={styles.connectButtonText}>连接机器人</Text>
+            <Text style={styles.connectButtonText}>{t('连接机器人', 'Connect Bot')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -103,6 +106,25 @@ export default function DashboardScreen() {
   // 近 7 天日利润数据（用于柱状图）
   const last7Days = dailyProfit?.data?.slice(0, 7).reverse() ?? [];
   const maxAbsProfit = Math.max(...last7Days.map(d => Math.abs(d.abs_profit)), 1);
+
+  const formatConfigPercent = (value?: number) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+    const display = Math.abs(value) <= 1 ? value * 100 : value;
+    return `${display.toFixed(2)}%`;
+  };
+
+  const roiSummary = (() => {
+    const roi = botState?.minimal_roi;
+    if (!roi || Object.keys(roi).length === 0) return '-';
+    const entries = Object.entries(roi)
+      .map(([minute, rate]) => ({ minute: Number(minute), rate }))
+      .filter((entry) => Number.isFinite(entry.minute))
+      .sort((a, b) => a.minute - b.minute);
+    if (!entries.length) return '-';
+    const first = entries[0];
+    const last = entries[entries.length - 1];
+    return `${first.minute}m:${(first.rate * 100).toFixed(2)}% ~ ${last.minute}m:${(last.rate * 100).toFixed(2)}%`;
+  })();
 
   return (
     <ScrollView
@@ -127,7 +149,7 @@ export default function DashboardScreen() {
 
       {/* === 总资产区域 === */}
       <View style={styles.portfolioSection}>
-        <Text style={styles.portfolioLabel}>总资产估值</Text>
+        <Text style={styles.portfolioLabel}>{t('总资产估值', 'TOTAL PORTFOLIO VALUE')}</Text>
         <Text style={styles.portfolioValue}>
           {totalBalance.toFixed(2)}
           <Text style={styles.portfolioCurrency}> {stakeCurrency}</Text>
@@ -145,7 +167,7 @@ export default function DashboardScreen() {
           ]}>
             {isTodayProfit ? '+' : ''}{todayPnlAbs.toFixed(2)} ({isTodayProfit ? '+' : ''}{todayPnlPct.toFixed(1)}%)
           </Text>
-          <Text style={styles.pnlLabel}>24 小时盈亏</Text>
+          <Text style={styles.pnlLabel}>{t('24 小时盈亏', '24h P&L')}</Text>
         </View>
       </View>
 
@@ -153,7 +175,7 @@ export default function DashboardScreen() {
       <View style={styles.botStatusCard}>
         <View style={styles.botStatusHeader}>
           <View>
-            <Text style={styles.botStatusLabel}>机器人状态</Text>
+            <Text style={styles.botStatusLabel}>{t('机器人状态', 'Bot Status')}</Text>
             <View style={styles.botStatusRow}>
               <View style={[
                 styles.statusDot,
@@ -163,12 +185,12 @@ export default function DashboardScreen() {
                 styles.botStatusText,
                 { color: botState?.state === 'running' ? Colors.dark.text : Colors.dark.loss }
               ]}>
-                {botState?.state === 'running' ? '运行中' : '已停止'}
+                {botState?.state === 'running' ? t('运行中', 'Running') : t('已停止', 'Stopped')}
               </Text>
             </View>
           </View>
           <View style={styles.quickPnl}>
-            <Text style={styles.quickPnlLabel}>累计收益</Text>
+            <Text style={styles.quickPnlLabel}>{t('累计收益', 'Total P&L')}</Text>
             <Text style={[
               styles.quickPnlValue,
               { color: isProfitable ? Colors.dark.profit : Colors.dark.loss }
@@ -212,24 +234,56 @@ export default function DashboardScreen() {
       <View style={styles.strategyCard}>
         <View style={styles.strategyHeader}>
           <Ionicons name="layers-outline" size={16} color={Colors.dark.primary} />
-          <Text style={styles.strategyTitle}>当前策略信息</Text>
+          <Text style={styles.strategyTitle}>{t('当前策略信息', 'Current Strategy')}</Text>
         </View>
         <View style={styles.strategyGrid}>
           <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>策略名称</Text>
+            <Text style={styles.strategyLabel}>{t('策略名称', 'Strategy')}</Text>
             <Text style={styles.strategyValue}>{botState?.strategy || '-'}</Text>
           </View>
           <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>交易周期</Text>
+            <Text style={styles.strategyLabel}>{t('交易周期', 'Timeframe')}</Text>
             <Text style={styles.strategyValue}>{botState?.timeframe || '-'}</Text>
           </View>
           <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>交易所</Text>
+            <Text style={styles.strategyLabel}>{t('交易所', 'Exchange')}</Text>
             <Text style={styles.strategyValue}>{botState?.exchange || '-'}</Text>
           </View>
           <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>运行模式</Text>
+            <Text style={styles.strategyLabel}>{t('运行模式', 'Runmode')}</Text>
             <Text style={styles.strategyValue}>{botState?.runmode || botState?.trading_mode || '-'}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>{t('计价币种', 'Stake Currency')}</Text>
+            <Text style={styles.strategyValue}>{botState?.stake_currency || '-'}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>{t('最大持仓', 'Max Open Trades')}</Text>
+            <Text style={styles.strategyValue}>
+              {typeof botState?.max_open_trades === 'number' ? String(botState.max_open_trades) : '-'}
+            </Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>{t('止损阈值', 'Stoploss')}</Text>
+            <Text style={styles.strategyValue}>{formatConfigPercent(botState?.stoploss)}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>{t('移动止损', 'Trailing Stop')}</Text>
+            <Text style={styles.strategyValue}>
+              {botState?.trailing_stop
+                ? `${t('开启', 'On')} (${formatConfigPercent(botState.trailing_stop_positive)})`
+                : t('关闭', 'Off')}
+            </Text>
+          </View>
+          <View style={styles.strategyItemFull}>
+            <Text style={styles.strategyLabel}>{t('ROI 目标', 'ROI Target')}</Text>
+            <Text style={styles.strategyValue}>{roiSummary}</Text>
+          </View>
+          <View style={styles.strategyItemFull}>
+            <Text style={styles.strategyLabel}>{t('实盘/模拟', 'Mode')}</Text>
+            <Text style={styles.strategyValue}>
+              {typeof botState?.dry_run === 'boolean' ? (botState.dry_run ? t('模拟交易', 'Dry Run') : t('实盘交易', 'Live')) : '-'}
+            </Text>
           </View>
         </View>
       </View>
@@ -259,7 +313,7 @@ export default function DashboardScreen() {
             styles.controlBtnText,
             botState?.state === 'running' && styles.controlBtnTextActive,
           ]}>
-            {isStartingBot ? '启动中...' : '启动'}
+            {isStartingBot ? t('启动中...', 'Starting...') : t('启动', 'Start')}
           </Text>
         </TouchableOpacity>
 
@@ -286,7 +340,7 @@ export default function DashboardScreen() {
             styles.controlBtnText,
             botState?.state === 'stopped' && { color: Colors.dark.loss },
           ]}>
-            {isStoppingBot ? '停止中...' : '停止'}
+            {isStoppingBot ? t('停止中...', 'Stopping...') : t('停止', 'Stop')}
           </Text>
         </TouchableOpacity>
 
@@ -301,7 +355,7 @@ export default function DashboardScreen() {
           ) : (
             <Ionicons name="refresh" size={18} color={Colors.dark.textSecondary} />
           )}
-          <Text style={styles.controlBtnText}>{isLoading ? '刷新中...' : '刷新'}</Text>
+          <Text style={styles.controlBtnText}>{isLoading ? t('刷新中...', 'Refreshing...') : t('刷新', 'Refresh')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -309,48 +363,48 @@ export default function DashboardScreen() {
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
           <Text style={styles.statValue}>{profit?.trade_count ?? 0}</Text>
-          <Text style={styles.statLabel}>总交易</Text>
+          <Text style={styles.statLabel}>{t('总交易', 'Trades')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={[styles.statValue, { color: Colors.dark.profit }]}>
             {profit?.winning_trades ?? 0}
           </Text>
-          <Text style={styles.statLabel}>盈利</Text>
+          <Text style={styles.statLabel}>{t('盈利', 'Wins')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={[styles.statValue, { color: Colors.dark.loss }]}>
             {profit?.losing_trades ?? 0}
           </Text>
-          <Text style={styles.statLabel}>亏损</Text>
+          <Text style={styles.statLabel}>{t('亏损', 'Losses')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statValue}>
             {profit?.profit_factor?.toFixed(2) ?? '-'}
           </Text>
-          <Text style={styles.statLabel}>盈亏比</Text>
+          <Text style={styles.statLabel}>{t('盈亏比', 'Profit Factor')}</Text>
         </View>
       </View>
 
       {/* === Active Pairs 列表 === */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>
-          活跃交易对
+          {t('活跃交易对', 'Active Pairs')}
         </Text>
         <Pressable
           onPress={() => router.push('/(tabs)/trades')}
           style={({ pressed }) => pressed && styles.sectionLinkPressed}
         >
-          <Text style={styles.sectionLink}>查看全部</Text>
+          <Text style={styles.sectionLink}>{t('查看全部', 'View All')}</Text>
         </Pressable>
       </View>
 
       {openTrades.length === 0 ? (
         <View style={styles.emptyTrades}>
           <Ionicons name="analytics-outline" size={32} color={Colors.dark.textMuted} />
-          <Text style={styles.emptyTradesText}>暂无活跃交易</Text>
+          <Text style={styles.emptyTradesText}>{t('暂无活跃交易', 'No open trades')}</Text>
         </View>
       ) : (
         openTrades.slice(0, 5).map((trade) => {
@@ -383,7 +437,7 @@ export default function DashboardScreen() {
                   {trade.pair.replace(':', ' / ')}
                 </Text>
                 <Text style={styles.pairMeta}>
-                  {trade.is_short ? '做空' : '做多'} · {trade.leverage > 1 ? `${trade.leverage}x 杠杆` : '1.0x 杠杆'}
+                  {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')} · {trade.leverage > 1 ? `${trade.leverage}x ${t('杠杆', 'Leverage')}` : `1.0x ${t('杠杆', 'Leverage')}`}
                 </Text>
               </View>
 
@@ -557,6 +611,9 @@ const styles = StyleSheet.create({
   strategyItem: {
     width: '50%',
     paddingRight: Spacing.md,
+  },
+  strategyItemFull: {
+    width: '100%',
   },
   strategyLabel: {
     color: Colors.dark.textMuted,

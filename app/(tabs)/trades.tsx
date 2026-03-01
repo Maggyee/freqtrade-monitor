@@ -19,12 +19,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
 // 分段控制器选项
 type TabType = 'open' | 'history';
 
 export default function TradesScreen() {
     const router = useRouter();
+    const language = useI18nStore((s) => s.language);
+    const t = (zh: string, en: string) => (language === 'en' ? en : zh);
     const {
         isConnected,
         isLoading,
@@ -44,15 +47,18 @@ export default function TradesScreen() {
         await refreshAll();
     }, [refreshAll]);
 
-    const formatDuration = (seconds?: number) => {
-        if (!seconds) return '-';
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
+    const formatDuration = (durationMinutes?: number) => {
+        if (!durationMinutes) return '-';
+        const totalMinutes = Math.max(0, Math.floor(durationMinutes));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
         if (hours > 24) {
             const days = Math.floor(hours / 24);
-            return `${days}天 ${hours % 24}小时`;
+            return language === 'en' ? `${days}d ${hours % 24}h` : `${days}天 ${hours % 24}小时`;
         }
-        return hours > 0 ? `${hours}小时 ${minutes}分钟` : `${minutes}分钟`;
+        return hours > 0
+            ? language === 'en' ? `${hours}h ${minutes}m` : `${hours}小时 ${minutes}分钟`
+            : language === 'en' ? `${minutes}m` : `${minutes}分钟`;
     };
 
     const formatDate = (dateStr?: string) => {
@@ -68,19 +74,21 @@ export default function TradesScreen() {
     // 平仓确认弹窗
     const handleForceExit = (tradeId: number, pair: string) => {
         Alert.alert(
-            '确认平仓',
-            `确定要平仓 ${pair} 吗？\n\n此操作将以市价立即平仓。`,
+            t('确认平仓', 'Confirm Close'),
+            language === 'en'
+                ? `Close ${pair}?\n\nThis will force close at market price.`
+                : `确定要平仓 ${pair} 吗？\n\n此操作将以市价立即平仓。`,
             [
-                { text: '取消', style: 'cancel' },
+                { text: t('取消', 'Cancel'), style: 'cancel' },
                 {
-                    text: '确认平仓',
+                    text: t('确认平仓', 'Confirm'),
                     style: 'destructive',
                     onPress: async () => {
                         setClosingTradeId(tradeId);
                         const success = await forceExit(tradeId);
                         setClosingTradeId(null);
                         if (success) {
-                            Alert.alert('✅ 平仓成功', `${pair} 已成功平仓`);
+                            Alert.alert(t('✅ 平仓成功', '✅ Closed'), language === 'en' ? `${pair} has been closed.` : `${pair} 已成功平仓`);
                         }
                     },
                 },
@@ -96,7 +104,7 @@ export default function TradesScreen() {
                     <View style={styles.emptyIconWrap}>
                         <Ionicons name="swap-horizontal" size={36} color={Colors.dark.primary} />
                     </View>
-                    <Text style={styles.emptyText}>请先连接 Bot</Text>
+                    <Text style={styles.emptyText}>{t('请先连接 Bot', 'Connect bot first')}</Text>
                 </View>
             </View>
         );
@@ -134,7 +142,7 @@ export default function TradesScreen() {
                         styles.segmentText,
                         activeTab === 'open' && styles.segmentTextActive,
                     ]}>
-                        当前持仓
+                        {t('当前持仓', 'Open Positions')}
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -149,7 +157,7 @@ export default function TradesScreen() {
                         styles.segmentText,
                         activeTab === 'history' && styles.segmentTextActive,
                     ]}>
-                        订单历史
+                        {t('订单历史', 'Order History')}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -159,12 +167,12 @@ export default function TradesScreen() {
                 <View style={styles.statsChips}>
                     <View style={styles.statsChip}>
                         <Ionicons name="wallet-outline" size={12} color={Colors.dark.primary} />
-                        <Text style={styles.statsChipLabel}>总敞口： </Text>
+                        <Text style={styles.statsChipLabel}>{t('总敞口： ', 'Exposure: ')}</Text>
                         <Text style={styles.statsChipValue}>{totalExposure.toFixed(2)}</Text>
                     </View>
                     <View style={styles.statsChip}>
                         <Ionicons name="trending-up" size={12} color={isUnrealizedProfit ? Colors.dark.profit : Colors.dark.loss} />
-                        <Text style={styles.statsChipLabel}>未实现盈亏： </Text>
+                        <Text style={styles.statsChipLabel}>{t('未实现盈亏： ', 'Unrealized P&L: ')}</Text>
                         <Text style={[
                             styles.statsChipValue,
                             { color: isUnrealizedProfit ? Colors.dark.profit : Colors.dark.loss }
@@ -181,8 +189,8 @@ export default function TradesScreen() {
                     {openTrades.length === 0 ? (
                         <View style={styles.emptyCard}>
                             <Ionicons name="analytics-outline" size={48} color={Colors.dark.textMuted} />
-                            <Text style={styles.emptyCardText}>暂无活跃交易</Text>
-                            <Text style={styles.emptyCardSubtext}>机器人正在等待入场信号...</Text>
+                            <Text style={styles.emptyCardText}>{t('暂无活跃交易', 'No open trades')}</Text>
+                            <Text style={styles.emptyCardSubtext}>{t('机器人正在等待入场信号...', 'Bot is waiting for entry signals...')}</Text>
                         </View>
                     ) : (
                         openTrades.map((trade) => {
@@ -216,19 +224,19 @@ export default function TradesScreen() {
                                                             styles.badgeText,
                                                             { color: trade.is_short ? Colors.dark.loss : Colors.dark.profit }
                                                         ]}>
-                                                            {trade.is_short ? '做空' : '做多'}
+                                                            {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')}
                                                         </Text>
                                                     </View>
                                                     {trade.leverage > 1 && (
                                                         <Text style={styles.leverageText}>
-                                                            {trade.leverage}x {trade.leverage <= 5 ? '全仓' : '逐仓'}
+                                                            {trade.leverage}x {trade.leverage <= 5 ? t('全仓', 'Cross') : t('逐仓', 'Isolated')}
                                                         </Text>
                                                     )}
                                                 </View>
                                             </View>
                                         </View>
                                         <View style={styles.tradeTopRight}>
-                                            <Text style={styles.unrealizedLabel}>未实现盈亏</Text>
+                                            <Text style={styles.unrealizedLabel}>{t('未实现盈亏', 'Unrealized P&L')}</Text>
                                             <Text style={[styles.profitValue, { color: profitColor }]}> 
                                                 {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)} ({isProfit ? '+' : ''}{profitPct.toFixed(1)}%)
                                             </Text>
@@ -251,23 +259,23 @@ export default function TradesScreen() {
                                     {/* 交易详情网格 */}
                                     <View style={styles.tradeGrid}>
                                         <View style={styles.gridItem}>
-                                            <Text style={styles.gridLabel}>开仓价</Text>
+                                            <Text style={styles.gridLabel}>{t('开仓价', 'Entry')}</Text>
                                             <Text style={styles.gridValue}>{trade.open_rate.toFixed(2)}</Text>
                                         </View>
                                         <View style={styles.gridItem}>
-                                            <Text style={styles.gridLabel}>当前价</Text>
+                                            <Text style={styles.gridLabel}>{t('当前价', 'Current')}</Text>
                                             <Text style={styles.gridValue}>{trade.current_rate.toFixed(2)}</Text>
                                         </View>
                                     </View>
                                     <View style={styles.tradeGrid}>
                                         <View style={styles.gridItem}>
-                                            <Text style={styles.gridLabel}>止损价</Text>
+                                            <Text style={styles.gridLabel}>{t('止损价', 'Stoploss')}</Text>
                                             <Text style={[styles.gridValue, { color: Colors.dark.loss }]}>
                                                 {trade.stop_loss_abs.toFixed(2)}
                                             </Text>
                                         </View>
                                         <View style={styles.gridItem}>
-                                            <Text style={styles.gridLabel}>保证金</Text>
+                                            <Text style={styles.gridLabel}>{t('保证金', 'Stake')}</Text>
                                             <Text style={styles.gridValue}>{trade.stake_amount.toFixed(2)}</Text>
                                         </View>
                                     </View>
@@ -279,7 +287,7 @@ export default function TradesScreen() {
                                             onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
                                             activeOpacity={0.7}
                                         >
-                                            <Text style={styles.detailsBtnText}>详情</Text>
+                                            <Text style={styles.detailsBtnText}>{t('详情', 'Details')}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.closeTradeBtn, isClosing && styles.closeTradeBtnDisabled]}
@@ -288,7 +296,7 @@ export default function TradesScreen() {
                                             activeOpacity={0.7}
                                         >
                                             <Text style={styles.closeTradeBtnText}>
-                                                {isClosing ? '平仓中...' : '平仓'}
+                                                {isClosing ? t('平仓中...', 'Closing...') : t('平仓', 'Close')}
                                             </Text>
                                         </TouchableOpacity>
                                     </View>
@@ -305,13 +313,13 @@ export default function TradesScreen() {
                     {tradeHistory.length === 0 ? (
                         <View style={styles.emptyCard}>
                             <Ionicons name="time-outline" size={48} color={Colors.dark.textMuted} />
-                            <Text style={styles.emptyCardText}>暂无历史交易记录</Text>
-                            <Text style={styles.emptyCardSubtext}>已完成交易会显示在这里</Text>
+                            <Text style={styles.emptyCardText}>{t('暂无历史交易记录', 'No trade history')}</Text>
+                            <Text style={styles.emptyCardSubtext}>{t('已完成交易会显示在这里', 'Completed trades will appear here')}</Text>
                         </View>
                     ) : (
                         <>
                             <View style={styles.historySummary}>
-                                <Text style={styles.historySummaryText}>共 {tradeHistory.length} 条历史记录</Text>
+                                <Text style={styles.historySummaryText}>{language === 'en' ? `${tradeHistory.length} history records` : `共 ${tradeHistory.length} 条历史记录`}</Text>
                             </View>
                             {tradeHistory.map((trade) => {
                                 const isProfit = (trade.profit_abs ?? 0) >= 0;
@@ -344,7 +352,7 @@ export default function TradesScreen() {
                                                             },
                                                         ]}
                                                     >
-                                                        {trade.is_short ? '空' : '多'}
+                                                        {trade.is_short ? t('空', 'S') : t('多', 'L')}
                                                     </Text>
                                                 </View>
                                             </View>
@@ -360,15 +368,15 @@ export default function TradesScreen() {
 
                                         <View style={styles.historyDetails}>
                                             <View style={styles.historyDetailItem}>
-                                                <Text style={styles.historyDetailLabel}>开仓</Text>
+                                                <Text style={styles.historyDetailLabel}>{t('开仓', 'Open')}</Text>
                                                 <Text style={styles.historyDetailValue}>{(trade.open_rate ?? 0).toFixed(4)}</Text>
                                             </View>
                                             <View style={styles.historyDetailItem}>
-                                                <Text style={styles.historyDetailLabel}>平仓</Text>
+                                                <Text style={styles.historyDetailLabel}>{t('平仓', 'Close')}</Text>
                                                 <Text style={styles.historyDetailValue}>{(trade.close_rate ?? 0).toFixed(4)}</Text>
                                             </View>
                                             <View style={styles.historyDetailItem}>
-                                                <Text style={styles.historyDetailLabel}>持仓</Text>
+                                                <Text style={styles.historyDetailLabel}>{t('持仓', 'Duration')}</Text>
                                                 <Text style={styles.historyDetailValue}>{formatDuration(trade.trade_duration)}</Text>
                                             </View>
                                         </View>

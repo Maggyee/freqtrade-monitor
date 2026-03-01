@@ -13,8 +13,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
 export default function HistoryScreen() {
+    const language = useI18nStore((s) => s.language);
+    const t = (zh: string, en: string) => (language === 'en' ? en : zh);
     const {
         isConnected,
         isLoading,
@@ -35,22 +38,25 @@ export default function HistoryScreen() {
                     <View style={styles.emptyIconWrap}>
                         <Ionicons name="time" size={36} color={Colors.dark.primary} />
                     </View>
-                    <Text style={styles.emptyText}>请先连接 Bot</Text>
+                    <Text style={styles.emptyText}>{t('请先连接 Bot', 'Connect bot first')}</Text>
                 </View>
             </View>
         );
     }
 
     // 格式化持仓时间
-    const formatDuration = (seconds: number) => {
-        if (!seconds) return '-';
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
+    const formatDuration = (durationMinutes: number) => {
+        if (!durationMinutes) return '-';
+        const totalMinutes = Math.max(0, Math.floor(durationMinutes));
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
         if (hours > 24) {
             const days = Math.floor(hours / 24);
-            return `${days}天 ${hours % 24}小时`;
+            return language === 'en' ? `${days}d ${hours % 24}h` : `${days}天 ${hours % 24}小时`;
         }
-        return hours > 0 ? `${hours}小时 ${minutes}分钟` : `${minutes}分钟`;
+        return hours > 0
+            ? language === 'en' ? `${hours}h ${minutes}m` : `${hours}小时 ${minutes}分钟`
+            : language === 'en' ? `${minutes}m` : `${minutes}分钟`;
     };
 
     // 格式化日期
@@ -92,7 +98,7 @@ export default function HistoryScreen() {
                                 styles.directionText,
                                 { color: item.is_short ? Colors.dark.loss : Colors.dark.profit }
                             ]}>
-                                {item.is_short ? '空' : '多'}
+                                {item.is_short ? t('空', 'S') : t('多', 'L')}
                             </Text>
                         </View>
                     </View>
@@ -109,15 +115,15 @@ export default function HistoryScreen() {
                 {/* 中部：详细信息 */}
                 <View style={styles.cardDetails}>
                     <View style={styles.detailItem}>
-                        <Text style={styles.detailLabel}>入场</Text>
+                        <Text style={styles.detailLabel}>{t('入场', 'Open')}</Text>
                         <Text style={styles.detailValue}>{(item.open_rate ?? 0).toFixed(4)}</Text>
                     </View>
                     <View style={styles.detailItem}>
-                        <Text style={styles.detailLabel}>出场</Text>
+                        <Text style={styles.detailLabel}>{t('出场', 'Close')}</Text>
                         <Text style={styles.detailValue}>{(item.close_rate ?? 0).toFixed(4)}</Text>
                     </View>
                     <View style={styles.detailItem}>
-                        <Text style={styles.detailLabel}>持仓</Text>
+                        <Text style={styles.detailLabel}>{t('持仓', 'Duration')}</Text>
                         <Text style={styles.detailValue}>{formatDuration(item.trade_duration ?? 0)}</Text>
                     </View>
                 </View>
@@ -140,15 +146,15 @@ export default function HistoryScreen() {
             {/* 统计概览 */}
             <View style={styles.overviewRow}>
                 <View style={styles.overviewCard}>
-                    <Text style={styles.overviewLabel}>总交易</Text>
+                    <Text style={styles.overviewLabel}>{t('总交易', 'Trades')}</Text>
                     <Text style={styles.overviewValue}>{totalTrades}</Text>
                 </View>
                 <View style={styles.overviewCard}>
-                    <Text style={styles.overviewLabel}>胜率</Text>
+                    <Text style={styles.overviewLabel}>{t('胜率', 'Win Rate')}</Text>
                     <Text style={[styles.overviewValue, { color: Colors.dark.primary }]}>{winRate}%</Text>
                 </View>
                 <View style={styles.overviewCard}>
-                    <Text style={styles.overviewLabel}>总盈亏</Text>
+                    <Text style={styles.overviewLabel}>{t('总盈亏', 'Total P&L')}</Text>
                     <Text style={[
                         styles.overviewValue,
                         { color: totalPnl >= 0 ? Colors.dark.profit : Colors.dark.loss }
@@ -175,8 +181,8 @@ export default function HistoryScreen() {
                 ListEmptyComponent={
                     <View style={styles.emptyCard}>
                         <Ionicons name="time-outline" size={48} color={Colors.dark.textMuted} />
-                        <Text style={styles.emptyCardText}>暂无历史记录</Text>
-                        <Text style={styles.emptyCardSubtext}>完成的交易将会在这里显示</Text>
+                        <Text style={styles.emptyCardText}>{t('暂无历史记录', 'No history')}</Text>
+                        <Text style={styles.emptyCardSubtext}>{t('完成的交易将会在这里显示', 'Completed trades will appear here')}</Text>
                     </View>
                 }
             />

@@ -19,13 +19,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 import CandleChart from '@/src/components/CandleChart';
-import { CandleData } from '@/src/api/freqtradeClient';
+import { CandleData, fetchExchangeCandles } from '@/src/api/freqtradeClient';
 
 export default function TradeDetailScreen() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
-    const { openTrades, forceExit } = useBotStore();
+    const language = useI18nStore((s) => s.language);
+    const t = (zh: string, en: string) => (language === 'en' ? en : zh);
+    const { openTrades, forceExit, botState } = useBotStore();
     const [isClosingTrade, setIsClosingTrade] = useState(false);
     const [isSharingTrade, setIsSharingTrade] = useState(false);
 
@@ -37,35 +40,62 @@ export default function TradeDetailScreen() {
     const [candleData, setCandleData] = useState<CandleData[]>([]);
     const [candleLoading, setCandleLoading] = useState(false);
     const [candleError, setCandleError] = useState<string | undefined>(undefined);
-    const [selectedTimeframe, setSelectedTimeframe] = useState('5m');
 
-    // 可选的时间周期列表
+    // 从 botState 获取策略的真实 timeframe
+    const strategyTf = botState?.timeframe || trade?.timeframe || '1h';
+    const [selectedTimeframe, setSelectedTimeframe] = useState(strategyTf);
+
+    // 可选时间周期列表
     const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
-    // 页面加载时获取 K 线数据
+    // Binance API 代理地址（部署在云服务器上的 nginx 容器）
+    // 注意：Freqtrade 可能通过局域网/VPN 连接，代理需要用公网 IP
+    const BINANCE_PROXY_URL = 'http://35.221.168.5:8081';
+
+    // 切换时间周期时重新加载
     useEffect(() => {
         if (!trade) return;
         loadCandles(selectedTimeframe);
     }, [trade?.pair, selectedTimeframe]);
 
-    // 从 Freqtrade API 加载 K 线数据
+    // 加载 K 线数据
+    // 策略时间周期 → pair_candles（Bot 内存数据，快速）
+    // 其他时间周期 → 通过云服务器代理获取 Binance K 线
     const loadCandles = async (tf: string) => {
         if (!trade) return;
         setCandleLoading(true);
         setCandleError(undefined);
         try {
-            // 通过 useBotStore 中的 client 实例获取 K 线数据
             const store = useBotStore.getState();
             if (!store.client) {
-                setCandleError('请先连接 Bot');
+                setCandleError(t('请先连接 Bot', 'Connect bot first'));
                 return;
             }
-            const result = await store.client.getPairCandles(trade.pair, tf, 80);
-            const parsed = store.client.parseCandleData(result);
-            setCandleData(parsed);
+
+            let parsed: CandleData[];
+
+            if (tf === strategyTf) {
+                // === 策略时间周期：从 Bot 内存获取（快速，含指标） ===
+                const result = await store.client.getPairCandles(trade.pair, tf, 300);
+                if (!result.columns || result.columns.length === 0) {
+                    setCandleError(t('K 线数据暂不可用', 'Candles unavailable'));
+                    return;
+                }
+                parsed = store.client.parseCandleData(result);
+            } else {
+                // === 其他时间周期：通过云服务器代理获取 Binance 数据 ===
+                console.log(`📊 通过代理获取 ${tf} K 线: ${BINANCE_PROXY_URL}`);
+                parsed = await fetchExchangeCandles(trade.pair, tf, 300, BINANCE_PROXY_URL);
+            }
+
+            if (parsed.length === 0) {
+                setCandleError(t('K 线数据为空', 'No candle data'));
+                return;
+            }
+            setCandleData(parsed.length > 300 ? parsed.slice(-300) : parsed);
         } catch (err: any) {
             console.error('❌ 获取 K 线数据失败:', err);
-            setCandleError(err?.message || '无法加载 K 线数据');
+            setCandleError(err?.message || t('无法加载 K 线数据', 'Failed to load candles'));
         } finally {
             setCandleLoading(false);
         }
@@ -78,20 +108,20 @@ export default function TradeDetailScreen() {
         if (isClosingTrade) return;
 
         Alert.alert(
-            '确认平仓',
-            `确定要平仓 ${trade.pair} 吗？`,
+            t('确认平仓', 'Confirm Close'),
+            language === 'en' ? `Close ${trade.pair}?` : `确定要平仓 ${trade.pair} 吗？`,
             [
-                { text: '取消', style: 'cancel' },
+                { text: t('取消', 'Cancel'), style: 'cancel' },
                 {
-                    text: '确认平仓',
+                    text: t('确认平仓', 'Confirm'),
                     style: 'destructive',
                     onPress: async () => {
                         setIsClosingTrade(true);
                         try {
                             const success = await forceExit(tradeId);
                             if (success) {
-                                Alert.alert('✅ 平仓成功', '', [
-                                    { text: '确定', onPress: () => router.back() }
+                                Alert.alert(t('✅ 平仓成功', '✅ Closed'), '', [
+                                    { text: t('确定', 'OK'), onPress: () => router.back() }
                                 ]);
                             }
                         } finally {
@@ -108,20 +138,20 @@ export default function TradeDetailScreen() {
 
         setIsSharingTrade(true);
         try {
-            const direction = trade.is_short ? '做空' : '做多';
+            const direction = trade.is_short ? t('做空', 'Short') : t('做多', 'Long');
             const pnlSign = trade.profit_pct >= 0 ? '+' : '';
             const displayPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
             await Share.share({
                 message: [
-                    'Freqtrade 交易快照',
+                    t('Freqtrade 交易快照', 'Freqtrade Trade Snapshot'),
                     `${trade.pair.replace(':', '/')}`,
                     `${direction} ${trade.leverage}x`,
-                    `盈亏 ${pnlSign}${displayPct.toFixed(2)}%`,
-                    `收益 ${pnlSign}${trade.profit_abs.toFixed(4)}`,
+                    `${t('盈亏', 'P&L')} ${pnlSign}${displayPct.toFixed(2)}%`,
+                    `${t('收益', 'Profit')} ${pnlSign}${trade.profit_abs.toFixed(4)}`,
                 ].join(' | '),
             });
         } catch {
-            Alert.alert('分享失败', '暂时无法分享这笔交易，请稍后重试。');
+            Alert.alert(t('分享失败', 'Share Failed'), t('暂时无法分享这笔交易，请稍后重试。', 'Unable to share this trade now. Please try again later.'));
         } finally {
             setIsSharingTrade(false);
         }
@@ -132,19 +162,19 @@ export default function TradeDetailScreen() {
         return (
             <View style={styles.container}>
                 <Stack.Screen options={{
-                    title: '交易详情',
+                    title: t('交易详情', 'Trade Detail'),
                     headerStyle: { backgroundColor: Colors.dark.background },
                     headerTintColor: Colors.dark.text,
                 }} />
                 <View style={styles.emptyCenter}>
                     <Ionicons name="alert-circle-outline" size={48} color={Colors.dark.textMuted} />
-                    <Text style={styles.emptyText}>交易未找到（可能已平仓）</Text>
+                    <Text style={styles.emptyText}>{t('交易未找到（可能已平仓）', 'Trade not found (possibly closed)')}</Text>
                     <TouchableOpacity
                         style={styles.backBtn}
                         onPress={() => router.back()}
                         activeOpacity={0.8}
                     >
-                        <Text style={styles.backBtnText}>返回</Text>
+                        <Text style={styles.backBtnText}>{t('返回', 'Back')}</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -162,8 +192,12 @@ export default function TradeDetailScreen() {
     const hours = Math.floor(durationMs / (1000 * 60 * 60));
     const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
     const durationStr = hours > 24
-        ? `${Math.floor(hours / 24)}天 ${hours % 24}小时`
-        : `${hours}小时 ${minutes}分钟`;
+        ? language === 'en'
+            ? `${Math.floor(hours / 24)}d ${hours % 24}h`
+            : `${Math.floor(hours / 24)}天 ${hours % 24}小时`
+        : language === 'en'
+            ? `${hours}h ${minutes}m`
+            : `${hours}小时 ${minutes}分钟`;
 
     // 格式化时间
     const formatTime = (dateStr: string) => {
@@ -193,7 +227,7 @@ export default function TradeDetailScreen() {
                             styles.directionText,
                             { color: trade.is_short ? Colors.dark.loss : Colors.dark.profit }
                         ]}>
-                            {trade.is_short ? '做空' : '做多'}
+                            {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')}
                         </Text>
                     </View>
                     {trade.leverage > 1 && (
@@ -207,7 +241,7 @@ export default function TradeDetailScreen() {
 
                 {/* === 当前价格 === */}
                 <View style={styles.priceSection}>
-                    <Text style={styles.currentPriceLabel}>当前价格</Text>
+                    <Text style={styles.currentPriceLabel}>{t('当前价格', 'Current Price')}</Text>
                     <Text style={styles.currentPrice}>${trade.current_rate.toFixed(2)}</Text>
                     <View style={styles.priceChange}>
                         <Ionicons
@@ -216,7 +250,7 @@ export default function TradeDetailScreen() {
                             color={profitColor}
                         />
                         <Text style={[styles.priceChangeText, { color: profitColor }]}>
-                            {isProfit ? '+' : ''}{profitPct}% 今日
+                            {isProfit ? '+' : ''}{profitPct}% {t('今日', 'today')}
                         </Text>
                     </View>
                 </View>
@@ -238,7 +272,7 @@ export default function TradeDetailScreen() {
                                 styles.timeframeBtnText,
                                 selectedTimeframe === tf && styles.timeframeBtnTextActive,
                             ]}>
-                                {tf}
+                                {tf}{tf === strategyTf ? ' ★' : ''}
                             </Text>
                         </TouchableOpacity>
                     ))}
@@ -256,7 +290,7 @@ export default function TradeDetailScreen() {
 
                 {/* === Trade PNL 卡片 === */}
                 <View style={[styles.pnlCard, { borderColor: profitColor }]}>
-                    <Text style={styles.pnlLabel}>本笔盈亏</Text>
+                    <Text style={styles.pnlLabel}>{t('本笔盈亏', 'Trade P&L')}</Text>
                     <View style={styles.pnlValues}>
                         <Text style={[styles.pnlAbs, { color: profitColor }]}>
                             {isProfit ? '+' : ''}{trade.profit_abs.toFixed(4)}
@@ -270,38 +304,38 @@ export default function TradeDetailScreen() {
                 </View>
 
                 {/* === Trade Metrics 网格 === */}
-                <Text style={styles.metricsTitle}>交易指标</Text>
+                <Text style={styles.metricsTitle}>{t('交易指标', 'Trade Metrics')}</Text>
                 <View style={styles.metricsGrid}>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>开仓价</Text>
+                        <Text style={styles.metricLabel}>{t('开仓价', 'Entry Price')}</Text>
                         <Text style={styles.metricValue}>${trade.open_rate.toFixed(4)}</Text>
                     </View>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>当前价</Text>
+                        <Text style={styles.metricLabel}>{t('当前价', 'Current Price')}</Text>
                         <Text style={styles.metricValue}>${trade.current_rate.toFixed(4)}</Text>
                     </View>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>杠杆</Text>
+                        <Text style={styles.metricLabel}>{t('杠杆', 'Leverage')}</Text>
                         <Text style={styles.metricValue}>{trade.leverage}x</Text>
                     </View>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>仓位</Text>
+                        <Text style={styles.metricLabel}>{t('仓位', 'Stake')}</Text>
                         <Text style={styles.metricValue}>{trade.stake_amount.toFixed(2)}</Text>
                     </View>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>止损价</Text>
-                        <Text style={[styles.metricValue, { color: Colors.dark.loss }]}>
+                        <Text style={styles.metricLabel}>{t('止损价', 'Stoploss')}</Text>
+                        <Text style={[styles.metricValue, { color: Colors.dark.loss }]}> 
                             ${trade.stop_loss_abs.toFixed(4)}
                         </Text>
                     </View>
                     <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>持仓时长</Text>
+                        <Text style={styles.metricLabel}>{t('持仓时长', 'Duration')}</Text>
                         <Text style={styles.metricValue}>{durationStr}</Text>
                     </View>
                 </View>
 
                 {/* === Order Timeline === */}
-                <Text style={styles.metricsTitle}>订单时间线</Text>
+                <Text style={styles.metricsTitle}>{t('订单时间线', 'Order Timeline')}</Text>
                 <View style={styles.timeline}>
                     {/* 入场 */}
                     <View style={styles.timelineItem}>
@@ -310,7 +344,7 @@ export default function TradeDetailScreen() {
                             <View style={styles.timelineLine} />
                         </View>
                         <View style={styles.timelineContent}>
-                            <Text style={styles.timelineTitle}>买入入场</Text>
+                            <Text style={styles.timelineTitle}>{t('买入入场', 'Entry Order')}</Text>
                             <Text style={styles.timelineDesc}>
                                 {trade.amount.toFixed(4)} @ ${trade.open_rate.toFixed(2)}
                             </Text>
@@ -325,9 +359,9 @@ export default function TradeDetailScreen() {
                             <View style={styles.timelineLine} />
                         </View>
                         <View style={styles.timelineContent}>
-                            <Text style={styles.timelineTitle}>止损设置</Text>
+                            <Text style={styles.timelineTitle}>{t('止损设置', 'Stoploss Set')}</Text>
                             <Text style={styles.timelineDesc}>
-                                止损价: ${trade.stop_loss_abs.toFixed(2)}
+                                {t('止损价', 'Stoploss')}: ${trade.stop_loss_abs.toFixed(2)}
                             </Text>
                             <Text style={styles.timelineTime}>{formatTime(trade.open_date)}</Text>
                         </View>
@@ -339,11 +373,11 @@ export default function TradeDetailScreen() {
                             <View style={[styles.timelineDot, { backgroundColor: Colors.dark.primary }]} />
                         </View>
                         <View style={styles.timelineContent}>
-                            <Text style={styles.timelineTitle}>🔵 持仓活跃</Text>
+                            <Text style={styles.timelineTitle}>{t('🔵 持仓活跃', '🔵 Position Active')}</Text>
                             <Text style={styles.timelineDesc}>
-                                已持仓 {durationStr}
+                                {t('已持仓', 'Open for')} {durationStr}
                             </Text>
-                            <Text style={styles.timelineTime}>现在</Text>
+                            <Text style={styles.timelineTime}>{t('现在', 'Now')}</Text>
                         </View>
                     </View>
                 </View>
@@ -361,7 +395,7 @@ export default function TradeDetailScreen() {
                         ) : (
                             <Ionicons name="share-outline" size={18} color={Colors.dark.textSecondary} />
                         )}
-                        <Text style={styles.shareBtnText}>{isSharingTrade ? '分享中...' : '分享'}</Text>
+                        <Text style={styles.shareBtnText}>{isSharingTrade ? t('分享中...', 'Sharing...') : t('分享', 'Share')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.closeTrade, isClosingTrade && styles.closeTradeDisabled]}
@@ -374,7 +408,7 @@ export default function TradeDetailScreen() {
                         ) : (
                             <Ionicons name="close-circle-outline" size={18} color="#FFF" />
                         )}
-                        <Text style={styles.closeTradeText}>{isClosingTrade ? '平仓中...' : '平仓'}</Text>
+                        <Text style={styles.closeTradeText}>{isClosingTrade ? t('平仓中...', 'Closing...') : t('平仓', 'Close Trade')}</Text>
                     </TouchableOpacity>
                 </View>
 
