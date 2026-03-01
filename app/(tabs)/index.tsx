@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
+import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -207,6 +208,32 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* === 当前策略信息 === */}
+      <View style={styles.strategyCard}>
+        <View style={styles.strategyHeader}>
+          <Ionicons name="layers-outline" size={16} color={Colors.dark.primary} />
+          <Text style={styles.strategyTitle}>当前策略信息</Text>
+        </View>
+        <View style={styles.strategyGrid}>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>策略名称</Text>
+            <Text style={styles.strategyValue}>{botState?.strategy || '-'}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>交易周期</Text>
+            <Text style={styles.strategyValue}>{botState?.timeframe || '-'}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>交易所</Text>
+            <Text style={styles.strategyValue}>{botState?.exchange || '-'}</Text>
+          </View>
+          <View style={styles.strategyItem}>
+            <Text style={styles.strategyLabel}>运行模式</Text>
+            <Text style={styles.strategyValue}>{botState?.runmode || botState?.trading_mode || '-'}</Text>
+          </View>
+        </View>
+      </View>
+
       {/* === 快捷控制按钮 === */}
       <View style={styles.controlRow}>
         <TouchableOpacity
@@ -329,6 +356,7 @@ export default function DashboardScreen() {
         openTrades.slice(0, 5).map((trade) => {
           const isProfit = trade.profit_pct >= 0;
           const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+          const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
           // 取交易对首字母
           const pairName = trade.pair.replace(':', '/').replace('/USDT', '');
           const initial = pairName.charAt(0).toUpperCase();
@@ -362,7 +390,7 @@ export default function DashboardScreen() {
               {/* 盈亏 */}
               <View style={styles.pairProfit}>
                 <Text style={[styles.pairProfitPct, { color: profitColor }]}>
-                  {isProfit ? '+' : ''}{(trade.profit_pct * 100).toFixed(2)}%
+                  {isProfit ? '+' : ''}{profitPct.toFixed(2)}%
                 </Text>
                 <Text style={[styles.pairProfitAbs, { color: profitColor }]}>
                   {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)}
@@ -498,6 +526,47 @@ const styles = StyleSheet.create({
   quickPnlValue: {
     fontSize: FontSize.xl,
     fontWeight: '700',
+    fontFamily: 'SpaceMono',
+  },
+
+  // === 当前策略信息 ===
+  strategyCard: {
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+  },
+  strategyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginBottom: Spacing.md,
+  },
+  strategyTitle: {
+    color: Colors.dark.text,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  strategyGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: Spacing.md,
+  },
+  strategyItem: {
+    width: '50%',
+    paddingRight: Spacing.md,
+  },
+  strategyLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+    marginBottom: 2,
+  },
+  strategyValue: {
+    color: Colors.dark.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
     fontFamily: 'SpaceMono',
   },
 

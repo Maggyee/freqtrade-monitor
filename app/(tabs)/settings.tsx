@@ -251,13 +251,21 @@ export default function SettingsScreen() {
             {/* === Bot Configuration === */}
             <Text style={styles.sectionLabel}>机器人配置</Text>
             <View style={styles.settingsGroup}>
-                <View style={styles.settingRow}>
+                <Pressable
+                    style={({ pressed }) => [
+                        styles.settingRow,
+                        styles.settingRowButton,
+                        pressed && styles.settingRowPressed,
+                    ]}
+                    onPress={() => router.push('/global-params')}
+                >
                     <Ionicons name="options-outline" size={18} color={Colors.dark.primary} />
                     <View style={styles.settingInfo}>
                         <Text style={styles.settingTitle}>全局参数</Text>
+                        <Text style={styles.settingSubtitle}>设置交易参数与风控阈值</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
-                </View>
+                </Pressable>
                 <View style={styles.settingDivider} />
                 <View style={styles.settingRow}>
                     <Ionicons name="flask-outline" size={18} color={Colors.dark.warning} />

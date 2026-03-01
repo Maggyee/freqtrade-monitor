@@ -85,6 +85,15 @@ function RootLayoutNav() {
             headerShadowVisible: false,
           }}
         />
+        <Stack.Screen
+          name="global-params"
+          options={{
+            title: '全局参数',
+            presentation: 'modal',
+            headerStyle: { backgroundColor: Colors.dark.surface },
+            headerTintColor: Colors.dark.text,
+          }}
+        />
       </Stack>
     </ThemeProvider>
   );

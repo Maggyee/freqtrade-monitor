@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
+import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 // 分段控制器选项
 type TabType = 'open' | 'history';
@@ -42,6 +43,27 @@ export default function TradesScreen() {
     const onRefresh = useCallback(async () => {
         await refreshAll();
     }, [refreshAll]);
+
+    const formatDuration = (seconds?: number) => {
+        if (!seconds) return '-';
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (hours > 24) {
+            const days = Math.floor(hours / 24);
+            return `${days}天 ${hours % 24}小时`;
+        }
+        return hours > 0 ? `${hours}小时 ${minutes}分钟` : `${minutes}分钟`;
+    };
+
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const hour = date.getHours().toString().padStart(2, '0');
+        const min = date.getMinutes().toString().padStart(2, '0');
+        return `${month}-${day} ${hour}:${min}`;
+    };
 
     // 平仓确认弹窗
     const handleForceExit = (tradeId: number, pair: string) => {
@@ -165,9 +187,10 @@ export default function TradesScreen() {
                     ) : (
                         openTrades.map((trade) => {
                             const isProfit = trade.profit_pct >= 0;
+                            const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
                             const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
                             const isClosing = closingTradeId === trade.trade_id;
-                            const profitPctDisplay = Math.abs(trade.profit_pct * 100);
+                            const profitPctDisplay = Math.abs(profitPct);
                             // 进度条宽度 - 限制最大值为 100%
                             const progressWidth = Math.min(profitPctDisplay * 5, 100);
 
@@ -206,8 +229,8 @@ export default function TradesScreen() {
                                         </View>
                                         <View style={styles.tradeTopRight}>
                                             <Text style={styles.unrealizedLabel}>未实现盈亏</Text>
-                                            <Text style={[styles.profitValue, { color: profitColor }]}>
-                                                {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)} ({isProfit ? '+' : ''}{(trade.profit_pct * 100).toFixed(1)}%)
+                                            <Text style={[styles.profitValue, { color: profitColor }]}> 
+                                                {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)} ({isProfit ? '+' : ''}{profitPct.toFixed(1)}%)
                                             </Text>
                                         </View>
                                     </View>
@@ -278,15 +301,92 @@ export default function TradesScreen() {
 
             {/* === Order History Tab 内容 === */}
             {activeTab === 'history' && (
-                <View style={styles.emptyCard}>
-                    <Ionicons name="time-outline" size={48} color={Colors.dark.textMuted} />
-                    <Text style={styles.emptyCardText}>交易历史</Text>
-                    <Text style={styles.emptyCardSubtext}>
-                        {tradeHistory.length > 0
-                            ? `共 ${tradeHistory.length} 条历史记录`
-                            : '暂无历史交易记录'}
-                    </Text>
-                </View>
+                <>
+                    {tradeHistory.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                            <Ionicons name="time-outline" size={48} color={Colors.dark.textMuted} />
+                            <Text style={styles.emptyCardText}>暂无历史交易记录</Text>
+                            <Text style={styles.emptyCardSubtext}>已完成交易会显示在这里</Text>
+                        </View>
+                    ) : (
+                        <>
+                            <View style={styles.historySummary}>
+                                <Text style={styles.historySummaryText}>共 {tradeHistory.length} 条历史记录</Text>
+                            </View>
+                            {tradeHistory.map((trade) => {
+                                const isProfit = (trade.profit_abs ?? 0) >= 0;
+                                const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+                                const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio).toFixed(2);
+
+                                return (
+                                    <View key={trade.trade_id} style={styles.historyCard}>
+                                        <View style={styles.historyHeader}>
+                                            <View style={styles.historyHeaderLeft}>
+                                                <View style={[styles.historyDot, { backgroundColor: profitColor }]} />
+                                                <Text style={styles.historyPair}>{trade.pair.replace(':', '/')}</Text>
+                                                <View
+                                                    style={[
+                                                        styles.historyDirBadge,
+                                                        {
+                                                            backgroundColor: trade.is_short
+                                                                ? Colors.dark.lossBg
+                                                                : Colors.dark.profitBg,
+                                                        },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            styles.historyDirText,
+                                                            {
+                                                                color: trade.is_short
+                                                                    ? Colors.dark.loss
+                                                                    : Colors.dark.profit,
+                                                            },
+                                                        ]}
+                                                    >
+                                                        {trade.is_short ? '空' : '多'}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            <View style={styles.historyHeaderRight}>
+                                                <Text style={[styles.historyProfit, { color: profitColor }]}> 
+                                                    {isProfit ? '+' : ''}{(trade.profit_abs ?? 0).toFixed(2)}
+                                                </Text>
+                                                <Text style={[styles.historyProfitPct, { color: profitColor }]}> 
+                                                    {isProfit ? '+' : ''}{profitPct}%
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.historyDetails}>
+                                            <View style={styles.historyDetailItem}>
+                                                <Text style={styles.historyDetailLabel}>开仓</Text>
+                                                <Text style={styles.historyDetailValue}>{(trade.open_rate ?? 0).toFixed(4)}</Text>
+                                            </View>
+                                            <View style={styles.historyDetailItem}>
+                                                <Text style={styles.historyDetailLabel}>平仓</Text>
+                                                <Text style={styles.historyDetailValue}>{(trade.close_rate ?? 0).toFixed(4)}</Text>
+                                            </View>
+                                            <View style={styles.historyDetailItem}>
+                                                <Text style={styles.historyDetailLabel}>持仓</Text>
+                                                <Text style={styles.historyDetailValue}>{formatDuration(trade.trade_duration)}</Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.historyFooter}>
+                                            <Text style={styles.historyFooterText}>
+                                                {formatDate(trade.close_date ?? trade.open_date)}
+                                            </Text>
+                                            <Text style={styles.historyFooterText}>
+                                                {trade.exit_reason ?? trade.sell_reason ?? '-'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </>
+                    )}
+                </>
             )}
 
             <View style={{ height: 40 }} />
@@ -540,5 +640,103 @@ const styles = StyleSheet.create({
     emptyCardSubtext: {
         color: Colors.dark.textMuted,
         fontSize: FontSize.sm,
+    },
+    historySummary: {
+        backgroundColor: Colors.dark.surface,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.dark.surfaceBorder,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        marginBottom: Spacing.sm,
+    },
+    historySummaryText: {
+        color: Colors.dark.textSecondary,
+        fontSize: FontSize.sm,
+        fontWeight: '600',
+    },
+    historyCard: {
+        backgroundColor: Colors.dark.surface,
+        borderRadius: BorderRadius.md,
+        borderWidth: 1,
+        borderColor: Colors.dark.surfaceBorder,
+        padding: Spacing.md,
+        marginBottom: Spacing.sm,
+    },
+    historyHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: Spacing.sm,
+    },
+    historyHeaderLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.sm,
+    },
+    historyDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    historyPair: {
+        color: Colors.dark.text,
+        fontSize: FontSize.md,
+        fontWeight: '700',
+    },
+    historyDirBadge: {
+        borderRadius: BorderRadius.sm,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    historyDirText: {
+        fontSize: FontSize.xs,
+        fontWeight: '700',
+    },
+    historyHeaderRight: {
+        alignItems: 'flex-end',
+    },
+    historyProfit: {
+        fontSize: FontSize.md,
+        fontWeight: '700',
+        fontFamily: 'SpaceMono',
+    },
+    historyProfitPct: {
+        fontSize: FontSize.xs,
+        fontFamily: 'SpaceMono',
+    },
+    historyDetails: {
+        flexDirection: 'row',
+        paddingTop: Spacing.sm,
+        borderTopWidth: 0.5,
+        borderTopColor: Colors.dark.surfaceBorder,
+    },
+    historyDetailItem: {
+        flex: 1,
+    },
+    historyDetailLabel: {
+        color: Colors.dark.textMuted,
+        fontSize: 9,
+        fontWeight: '600',
+        letterSpacing: 0.5,
+        marginBottom: 2,
+    },
+    historyDetailValue: {
+        color: Colors.dark.textSecondary,
+        fontSize: FontSize.sm,
+        fontFamily: 'SpaceMono',
+        fontWeight: '600',
+    },
+    historyFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: Spacing.sm,
+        paddingTop: Spacing.sm,
+        borderTopWidth: 0.5,
+        borderTopColor: Colors.dark.surfaceBorder,
+    },
+    historyFooterText: {
+        color: Colors.dark.textMuted,
+        fontSize: FontSize.xs,
     },
 });

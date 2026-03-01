@@ -3,7 +3,7 @@
 // 中部：Trade PNL 卡片 + Trade Metrics 网格
 // 底部：Order Timeline 时间线 + Share/History 按钮
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -18,6 +18,9 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
+import { toDisplayProfitPercent } from '../../src/utils/profit';
+import CandleChart from '@/src/components/CandleChart';
+import { CandleData } from '@/src/api/freqtradeClient';
 
 export default function TradeDetailScreen() {
     const { id } = useLocalSearchParams();
@@ -26,9 +29,48 @@ export default function TradeDetailScreen() {
     const [isClosingTrade, setIsClosingTrade] = useState(false);
     const [isSharingTrade, setIsSharingTrade] = useState(false);
 
-    // 找到对应的交易
+    // 找到对应的交易（需在 useEffect 之前声明）
     const tradeId = Number(id);
     const trade = openTrades.find(t => t.trade_id === tradeId);
+
+    // === K 线图表数据状态 ===
+    const [candleData, setCandleData] = useState<CandleData[]>([]);
+    const [candleLoading, setCandleLoading] = useState(false);
+    const [candleError, setCandleError] = useState<string | undefined>(undefined);
+    const [selectedTimeframe, setSelectedTimeframe] = useState('5m');
+
+    // 可选的时间周期列表
+    const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+    // 页面加载时获取 K 线数据
+    useEffect(() => {
+        if (!trade) return;
+        loadCandles(selectedTimeframe);
+    }, [trade?.pair, selectedTimeframe]);
+
+    // 从 Freqtrade API 加载 K 线数据
+    const loadCandles = async (tf: string) => {
+        if (!trade) return;
+        setCandleLoading(true);
+        setCandleError(undefined);
+        try {
+            // 通过 useBotStore 中的 client 实例获取 K 线数据
+            const store = useBotStore.getState();
+            if (!store.client) {
+                setCandleError('请先连接 Bot');
+                return;
+            }
+            const result = await store.client.getPairCandles(trade.pair, tf, 80);
+            const parsed = store.client.parseCandleData(result);
+            setCandleData(parsed);
+        } catch (err: any) {
+            console.error('❌ 获取 K 线数据失败:', err);
+            setCandleError(err?.message || '无法加载 K 线数据');
+        } finally {
+            setCandleLoading(false);
+        }
+    };
+
 
     // 平仓操作
     const handleForceExit = () => {
@@ -68,12 +110,13 @@ export default function TradeDetailScreen() {
         try {
             const direction = trade.is_short ? '做空' : '做多';
             const pnlSign = trade.profit_pct >= 0 ? '+' : '';
+            const displayPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
             await Share.share({
                 message: [
                     'Freqtrade 交易快照',
                     `${trade.pair.replace(':', '/')}`,
                     `${direction} ${trade.leverage}x`,
-                    `盈亏 ${pnlSign}${(trade.profit_pct * 100).toFixed(2)}%`,
+                    `盈亏 ${pnlSign}${displayPct.toFixed(2)}%`,
                     `收益 ${pnlSign}${trade.profit_abs.toFixed(4)}`,
                 ].join(' | '),
             });
@@ -110,7 +153,7 @@ export default function TradeDetailScreen() {
 
     const isProfit = trade.profit_pct >= 0;
     const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
-    const profitPct = (trade.profit_pct * 100).toFixed(2);
+    const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio).toFixed(2);
 
     // 计算持仓时间
     const openDate = new Date(trade.open_date);
@@ -178,19 +221,38 @@ export default function TradeDetailScreen() {
                     </View>
                 </View>
 
-                {/* === 价格图表占位 === */}
-                <View style={styles.chartPlaceholder}>
-                    <View style={styles.chartLine}>
-                        {/* 用简单的装饰线模拟图表线条 */}
-                        <View style={[styles.chartDot, { left: '10%', bottom: '30%' }]} />
-                        <View style={[styles.chartDot, { left: '25%', bottom: '25%' }]} />
-                        <View style={[styles.chartDot, { left: '40%', bottom: '45%' }]} />
-                        <View style={[styles.chartDot, { left: '55%', bottom: '55%' }]} />
-                        <View style={[styles.chartDot, { left: '70%', bottom: '60%' }]} />
-                        <View style={[styles.chartDot, { left: '85%', bottom: isProfit ? '70%' : '35%' }]} />
-                    </View>
-                    <Text style={styles.chartHint}>📈 实时图表（需接入图表组件）</Text>
+                {/* === K 线蜡烛图 === */}
+                {/* 时间周期选择器 */}
+                <View style={styles.timeframeRow}>
+                    {timeframes.map(tf => (
+                        <TouchableOpacity
+                            key={tf}
+                            style={[
+                                styles.timeframeBtn,
+                                selectedTimeframe === tf && styles.timeframeBtnActive,
+                            ]}
+                            onPress={() => setSelectedTimeframe(tf)}
+                            activeOpacity={0.7}
+                        >
+                            <Text style={[
+                                styles.timeframeBtnText,
+                                selectedTimeframe === tf && styles.timeframeBtnTextActive,
+                            ]}>
+                                {tf}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
                 </View>
+
+                {/* 蜡烛图组件 */}
+                <CandleChart
+                    candles={candleData}
+                    height={220}
+                    openRate={trade.open_rate}
+                    isLoading={candleLoading}
+                    errorMessage={candleError}
+                    timeframe={selectedTimeframe}
+                />
 
                 {/* === Trade PNL 卡片 === */}
                 <View style={[styles.pnlCard, { borderColor: profitColor }]}>
@@ -382,33 +444,31 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-    // === 价格图表占位 ===
-    chartPlaceholder: {
+    // === 时间周期选择器 ===
+    timeframeRow: {
+        flexDirection: 'row',
+        gap: Spacing.xs,
+        marginBottom: Spacing.md,
+    },
+    timeframeBtn: {
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.xs,
+        borderRadius: BorderRadius.full,
         backgroundColor: Colors.dark.surface,
-        borderRadius: BorderRadius.lg,
-        height: 160,
-        marginBottom: Spacing.lg,
         borderWidth: 1,
         borderColor: Colors.dark.surfaceBorder,
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
     },
-    chartLine: {
-        position: 'absolute',
-        width: '100%',
-        height: '100%',
+    timeframeBtnActive: {
+        backgroundColor: Colors.dark.primaryBg,
+        borderColor: Colors.dark.primary,
     },
-    chartDot: {
-        position: 'absolute',
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: Colors.dark.primary,
-    },
-    chartHint: {
+    timeframeBtnText: {
         color: Colors.dark.textMuted,
-        fontSize: FontSize.sm,
+        fontSize: FontSize.xs,
+        fontWeight: '600',
+    },
+    timeframeBtnTextActive: {
+        color: Colors.dark.primary,
     },
 
     // === PNL 卡片 ===

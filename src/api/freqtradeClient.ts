@@ -126,6 +126,31 @@ export interface Performance {
     count: number;
 }
 
+// K 线（蜡烛图）数据 - 对应 api_schemas.py 的 PairHistory
+export interface PairCandles {
+    strategy: string;          // 当前策略名
+    pair: string;              // 交易对
+    timeframe: string;         // 时间周期（如 "5m"）
+    timeframe_ms: number;      // 时间周期的毫秒数
+    columns: string[];         // 列名数组（如 ["date", "open", "high", "low", "close", "volume"]）
+    data: (number | string)[][]; // 二维数组，每行是一根蜡烛
+    length: number;            // 数据长度
+    last_analyzed: string;     // 最后分析时间
+    last_analyzed_ts: number;  // 最后分析时间戳
+    data_start_ts: number;     // 数据起始时间戳
+    data_stop_ts: number;      // 数据结束时间戳
+}
+
+// 单根蜡烛的结构化数据（从 PairCandles.data 解析而来）
+export interface CandleData {
+    date: number;     // 时间戳（毫秒）
+    open: number;     // 开盘价
+    high: number;     // 最高价
+    low: number;      // 最低价
+    close: number;    // 收盘价
+    volume: number;   // 成交量
+}
+
 // === API 客户端类 ===
 
 class FreqtradeClient {
@@ -336,6 +361,52 @@ class FreqtradeClient {
     async getPerformance(): Promise<Performance[]> {
         const { data } = await this.client.get('/api/v1/performance');
         return data;
+    }
+
+    /**
+     * 获取 K 线（蜡烛图）数据 - GET /api/v1/pair_candles
+     * 对接后端 api_trading.py 的 pair_candles 端点
+     * @param pair 交易对，如 "BTC/USDT" 或 "BTC/USDT:USDT"
+     * @param timeframe 时间周期，如 "5m", "15m", "1h", "4h", "1d"
+     * @param limit 返回蜡烛数量限制
+     */
+    async getPairCandles(pair: string, timeframe: string, limit: number = 100): Promise<PairCandles> {
+        const { data } = await this.client.get('/api/v1/pair_candles', {
+            params: { pair, timeframe, limit },
+        });
+        return data;
+    }
+
+    /**
+     * 将 PairCandles 的原始 columns + data 格式解析为结构化的 CandleData 数组
+     * Freqtrade API 返回的是列名数组 + 二维数据数组的格式（类似 pandas DataFrame）
+     * 这个方法将其转换为每根蜡烛一个对象的格式，方便图表组件使用
+     */
+    parseCandleData(pairCandles: PairCandles): CandleData[] {
+        const { columns, data: rawData } = pairCandles;
+
+        // 找到每个关键列在 columns 数组中的索引
+        const dateIdx = columns.indexOf('date');
+        const openIdx = columns.indexOf('open');
+        const highIdx = columns.indexOf('high');
+        const lowIdx = columns.indexOf('low');
+        const closeIdx = columns.indexOf('close');
+        const volumeIdx = columns.indexOf('volume');
+
+        // 如果找不到必要的列，返回空数组
+        if (dateIdx === -1 || openIdx === -1 || closeIdx === -1) {
+            console.warn('⚠️ K 线数据列名缺失:', columns);
+            return [];
+        }
+
+        return rawData.map(row => ({
+            date: Number(row[dateIdx]),               // 时间戳
+            open: Number(row[openIdx]),                // 开盘价
+            high: highIdx !== -1 ? Number(row[highIdx]) : Number(row[openIdx]),   // 最高价
+            low: lowIdx !== -1 ? Number(row[lowIdx]) : Number(row[closeIdx]),     // 最低价
+            close: Number(row[closeIdx]),              // 收盘价
+            volume: volumeIdx !== -1 ? Number(row[volumeIdx]) : 0,               // 成交量
+        }));
     }
 
     /** 获取开放交易数量 - GET /api/v1/count */
