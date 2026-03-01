@@ -1,0 +1,728 @@
+// 仪表盘首页 - 基于 Stitch 设计稿优化
+// 顶部：总资产 + 24h P&L
+// 中部：Bot Status 卡片 + 柱状图 + 快捷控制按钮
+// 底部：Active Pairs 列表
+
+import React, { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
+import { useBotStore } from '@/src/stores/useBotStore';
+
+export default function DashboardScreen() {
+  const router = useRouter();
+  const {
+    isConnected,
+    isLoading,
+    botState,
+    balance,
+    openTrades,
+    profit,
+    dailyProfit,
+    refreshAll,
+    startBot,
+    stopBot,
+    error,
+  } = useBotStore();
+  const [isStartingBot, setIsStartingBot] = useState(false);
+  const [isStoppingBot, setIsStoppingBot] = useState(false);
+
+  // 下拉刷新
+  const onRefresh = useCallback(async () => {
+    await refreshAll();
+  }, [refreshAll]);
+
+  const handleStartBot = useCallback(async () => {
+    if (isStartingBot || isStoppingBot || botState?.state === 'running') return;
+    setIsStartingBot(true);
+    try {
+      await startBot();
+    } finally {
+      setIsStartingBot(false);
+    }
+  }, [isStartingBot, isStoppingBot, botState?.state, startBot]);
+
+  const handleStopBot = useCallback(async () => {
+    if (isStartingBot || isStoppingBot || botState?.state !== 'running') return;
+    setIsStoppingBot(true);
+    try {
+      await stopBot();
+    } finally {
+      setIsStoppingBot(false);
+    }
+  }, [isStartingBot, isStoppingBot, botState?.state, stopBot]);
+
+  // === 未连接状态 - 显示登录引导 ===
+  if (!isConnected) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyState}>
+          {/* 装饰性图标 */}
+          <View style={styles.emptyIconWrap}>
+            <Ionicons name="analytics" size={48} color={Colors.dark.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>欢迎使用 Freqtrade</Text>
+          <Text style={styles.emptySubtitle}>连接你的机器人开始监控交易</Text>
+          <TouchableOpacity
+            style={styles.connectButton}
+            onPress={() => router.push('/login')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="link" size={18} color="#FFF" />
+            <Text style={styles.connectButtonText}>连接机器人</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // === 已连接 - 显示仪表盘 ===
+  const todayProfit = dailyProfit?.data?.[0];
+  const totalBalance = balance?.total ?? 0;
+  const stakeCurrency = balance?.stake ?? 'USDT';
+  const totalProfitPct = profit?.profit_all_percent ?? 0;
+  const totalProfitAbs = profit?.profit_all_coin ?? 0;
+  const isProfitable = totalProfitAbs >= 0;
+
+  // 今日 P&L
+  const todayPnlAbs = todayProfit?.abs_profit ?? 0;
+  const todayPnlPct = (todayProfit?.rel_profit ?? 0) * 100;
+  const isTodayProfit = todayPnlAbs >= 0;
+
+  // 近 7 天日利润数据（用于柱状图）
+  const last7Days = dailyProfit?.data?.slice(0, 7).reverse() ?? [];
+  const maxAbsProfit = Math.max(...last7Days.map(d => Math.abs(d.abs_profit)), 1);
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={isLoading}
+          onRefresh={onRefresh}
+          tintColor={Colors.dark.primary}
+          colors={[Colors.dark.primary]}
+        />
+      }
+    >
+      {/* 错误提示 */}
+      {error && (
+        <View style={styles.errorBanner}>
+          <Ionicons name="alert-circle" size={16} color={Colors.dark.warning} />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {/* === 总资产区域 === */}
+      <View style={styles.portfolioSection}>
+        <Text style={styles.portfolioLabel}>总资产估值</Text>
+        <Text style={styles.portfolioValue}>
+          {totalBalance.toFixed(2)}
+          <Text style={styles.portfolioCurrency}> {stakeCurrency}</Text>
+        </Text>
+        {/* 24h P&L 指示器 */}
+        <View style={styles.pnlRow}>
+          <Ionicons
+            name={isTodayProfit ? 'trending-up' : 'trending-down'}
+            size={14}
+            color={isTodayProfit ? Colors.dark.profit : Colors.dark.loss}
+          />
+          <Text style={[
+            styles.pnlText,
+            { color: isTodayProfit ? Colors.dark.profit : Colors.dark.loss }
+          ]}>
+            {isTodayProfit ? '+' : ''}{todayPnlAbs.toFixed(2)} ({isTodayProfit ? '+' : ''}{todayPnlPct.toFixed(1)}%)
+          </Text>
+          <Text style={styles.pnlLabel}>24 小时盈亏</Text>
+        </View>
+      </View>
+
+      {/* === Bot Status 卡片 + 柱状图 === */}
+      <View style={styles.botStatusCard}>
+        <View style={styles.botStatusHeader}>
+          <View>
+            <Text style={styles.botStatusLabel}>机器人状态</Text>
+            <View style={styles.botStatusRow}>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: botState?.state === 'running' ? Colors.dark.profit : Colors.dark.loss }
+              ]} />
+              <Text style={[
+                styles.botStatusText,
+                { color: botState?.state === 'running' ? Colors.dark.text : Colors.dark.loss }
+              ]}>
+                {botState?.state === 'running' ? '运行中' : '已停止'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.quickPnl}>
+            <Text style={styles.quickPnlLabel}>累计收益</Text>
+            <Text style={[
+              styles.quickPnlValue,
+              { color: isProfitable ? Colors.dark.profit : Colors.dark.loss }
+            ]}>
+              {isProfitable ? '+' : ''}{totalProfitPct.toFixed(1)}%
+            </Text>
+          </View>
+        </View>
+
+        {/* 迷你柱状图 - 最近 7 天日利润 */}
+        <View style={styles.miniChart}>
+          {last7Days.map((day, index) => {
+            const isPositive = day.abs_profit >= 0;
+            const barHeight = Math.max((Math.abs(day.abs_profit) / maxAbsProfit) * 60, 4);
+            return (
+              <View key={index} style={styles.barContainer}>
+                <View
+                  style={[
+                    styles.bar,
+                    {
+                      height: barHeight,
+                      backgroundColor: isPositive
+                        ? Colors.dark.primary
+                        : `${Colors.dark.primary}66`,
+                    },
+                  ]}
+                />
+              </View>
+            );
+          })}
+          {/* 如果数据不满 7 天，用占位补齐 */}
+          {Array.from({ length: Math.max(0, 7 - last7Days.length) }).map((_, i) => (
+            <View key={`empty-${i}`} style={styles.barContainer}>
+              <View style={[styles.bar, { height: 4, backgroundColor: Colors.dark.surfaceHighlight }]} />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* === 快捷控制按钮 === */}
+      <View style={styles.controlRow}>
+        <TouchableOpacity
+          style={[
+            styles.controlBtn,
+            botState?.state === 'running' && styles.controlBtnActive,
+            (isStartingBot || isStoppingBot || botState?.state === 'running') && styles.controlBtnDisabled,
+          ]}
+          onPress={handleStartBot}
+          disabled={isStartingBot || isStoppingBot || botState?.state === 'running'}
+          activeOpacity={0.7}
+        >
+          {isStartingBot ? (
+            <ActivityIndicator size="small" color={Colors.dark.primary} />
+          ) : (
+            <Ionicons
+              name="play"
+              size={18}
+              color={botState?.state === 'running' ? Colors.dark.primary : Colors.dark.textSecondary}
+            />
+          )}
+          <Text style={[
+            styles.controlBtnText,
+            botState?.state === 'running' && styles.controlBtnTextActive,
+          ]}>
+            {isStartingBot ? '启动中...' : '启动'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.controlBtn,
+            botState?.state === 'stopped' && styles.controlBtnDanger,
+            (isStartingBot || isStoppingBot || botState?.state !== 'running') && styles.controlBtnDisabled,
+          ]}
+          onPress={handleStopBot}
+          disabled={isStartingBot || isStoppingBot || botState?.state !== 'running'}
+          activeOpacity={0.7}
+        >
+          {isStoppingBot ? (
+            <ActivityIndicator size="small" color={Colors.dark.loss} />
+          ) : (
+            <Ionicons
+              name="stop"
+              size={18}
+              color={botState?.state === 'stopped' ? Colors.dark.loss : Colors.dark.textSecondary}
+            />
+          )}
+          <Text style={[
+            styles.controlBtnText,
+            botState?.state === 'stopped' && { color: Colors.dark.loss },
+          ]}>
+            {isStoppingBot ? '停止中...' : '停止'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlBtn, isLoading && styles.controlBtnDisabled]}
+          onPress={() => refreshAll()}
+          disabled={isLoading}
+          activeOpacity={0.7}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color={Colors.dark.textSecondary} />
+          ) : (
+            <Ionicons name="refresh" size={18} color={Colors.dark.textSecondary} />
+          )}
+          <Text style={styles.controlBtnText}>{isLoading ? '刷新中...' : '刷新'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* === 交易统计 === */}
+      <View style={styles.statsRow}>
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{profit?.trade_count ?? 0}</Text>
+          <Text style={styles.statLabel}>总交易</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statValue, { color: Colors.dark.profit }]}>
+            {profit?.winning_trades ?? 0}
+          </Text>
+          <Text style={styles.statLabel}>盈利</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statValue, { color: Colors.dark.loss }]}>
+            {profit?.losing_trades ?? 0}
+          </Text>
+          <Text style={styles.statLabel}>亏损</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>
+            {profit?.profit_factor?.toFixed(2) ?? '-'}
+          </Text>
+          <Text style={styles.statLabel}>盈亏比</Text>
+        </View>
+      </View>
+
+      {/* === Active Pairs 列表 === */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          活跃交易对
+        </Text>
+        <Pressable
+          onPress={() => router.push('/(tabs)/trades')}
+          style={({ pressed }) => pressed && styles.sectionLinkPressed}
+        >
+          <Text style={styles.sectionLink}>查看全部</Text>
+        </Pressable>
+      </View>
+
+      {openTrades.length === 0 ? (
+        <View style={styles.emptyTrades}>
+          <Ionicons name="analytics-outline" size={32} color={Colors.dark.textMuted} />
+          <Text style={styles.emptyTradesText}>暂无活跃交易</Text>
+        </View>
+      ) : (
+        openTrades.slice(0, 5).map((trade) => {
+          const isProfit = trade.profit_pct >= 0;
+          const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+          // 取交易对首字母
+          const pairName = trade.pair.replace(':', '/').replace('/USDT', '');
+          const initial = pairName.charAt(0).toUpperCase();
+
+          return (
+            <Pressable
+              key={trade.trade_id}
+              style={({ pressed }) => [
+                styles.pairCard,
+                pressed && styles.pairCardPressed,
+              ]}
+              onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
+            >
+              {/* 币种图标 - 使用首字母 */}
+              <View style={[styles.pairIcon, { borderColor: profitColor }]}>
+                <Text style={[styles.pairIconText, { color: profitColor }]}>
+                  {initial}
+                </Text>
+              </View>
+
+              {/* 交易对名称和方向 */}
+              <View style={styles.pairInfo}>
+                <Text style={styles.pairName}>
+                  {trade.pair.replace(':', ' / ')}
+                </Text>
+                <Text style={styles.pairMeta}>
+                  {trade.is_short ? '做空' : '做多'} · {trade.leverage > 1 ? `${trade.leverage}x 杠杆` : '1.0x 杠杆'}
+                </Text>
+              </View>
+
+              {/* 盈亏 */}
+              <View style={styles.pairProfit}>
+                <Text style={[styles.pairProfitPct, { color: profitColor }]}>
+                  {isProfit ? '+' : ''}{(trade.profit_pct * 100).toFixed(2)}%
+                </Text>
+                <Text style={[styles.pairProfitAbs, { color: profitColor }]}>
+                  {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })
+      )}
+
+      {/* 底部留白 */}
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  );
+}
+
+// === 样式表 - 匹配 Stitch 设计 ===
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.dark.background,
+  },
+  content: {
+    padding: Spacing.lg,
+  },
+
+  // 错误提示
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 170, 0, 0.1)',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 170, 0, 0.2)',
+  },
+  errorText: {
+    color: Colors.dark.warning,
+    fontSize: FontSize.sm,
+    flex: 1,
+  },
+
+  // === 总资产区域 ===
+  portfolioSection: {
+    marginBottom: Spacing.xl,
+    paddingTop: Spacing.sm,
+  },
+  portfolioLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: Spacing.xs,
+  },
+  portfolioValue: {
+    color: Colors.dark.text,
+    fontSize: FontSize.hero,
+    fontWeight: '700',
+    fontFamily: 'SpaceMono',
+    letterSpacing: -0.5,
+  },
+  portfolioCurrency: {
+    fontSize: FontSize.lg,
+    color: Colors.dark.textSecondary,
+    fontWeight: '400',
+  },
+  pnlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  pnlText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    fontFamily: 'SpaceMono',
+  },
+  pnlLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.sm,
+    marginLeft: Spacing.xs,
+  },
+
+  // === Bot Status 卡片 ===
+  botStatusCard: {
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+  },
+  botStatusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: Spacing.lg,
+  },
+  botStatusLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.xs,
+  },
+  botStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  botStatusText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  quickPnl: {
+    alignItems: 'flex-end',
+  },
+  quickPnlLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.xs,
+  },
+  quickPnlValue: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    fontFamily: 'SpaceMono',
+  },
+
+  // === 迷你柱状图 ===
+  miniChart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 60,
+    gap: 6,
+  },
+  barContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: '100%',
+  },
+  bar: {
+    width: '80%',
+    borderRadius: 3,
+    minHeight: 4,
+  },
+
+  // === 快捷控制按钮 ===
+  controlRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  controlBtn: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.dark.surface,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+    gap: Spacing.xs,
+  },
+  controlBtnActive: {
+    borderColor: Colors.dark.primary,
+    backgroundColor: Colors.dark.primaryBg,
+  },
+  controlBtnDanger: {
+    borderColor: Colors.dark.loss,
+    backgroundColor: Colors.dark.lossBg,
+  },
+  controlBtnDisabled: {
+    opacity: 0.6,
+  },
+  controlBtnText: {
+    color: Colors.dark.textSecondary,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+  },
+  controlBtnTextActive: {
+    color: Colors.dark.primary,
+  },
+
+  // === 统计行 ===
+  statsRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+    alignItems: 'center',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    color: Colors.dark.text,
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    fontFamily: 'SpaceMono',
+  },
+  statLabel: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 0.5,
+    height: 30,
+    backgroundColor: Colors.dark.surfaceBorder,
+  },
+
+  // === Section Header ===
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  sectionTitle: {
+    color: Colors.dark.text,
+    fontSize: FontSize.lg,
+    fontWeight: '700',
+  },
+  sectionLink: {
+    color: Colors.dark.primary,
+    fontSize: FontSize.sm,
+    fontWeight: '500',
+  },
+  sectionLinkPressed: {
+    opacity: 0.65,
+  },
+
+  // === Active Pairs 卡片 ===
+  pairCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+    gap: Spacing.md,
+  },
+  pairCardPressed: {
+    backgroundColor: Colors.dark.surfaceLight,
+    borderColor: Colors.dark.primary,
+  },
+  pairIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.dark.surfaceLight,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pairIconText: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
+  pairInfo: {
+    flex: 1,
+  },
+  pairName: {
+    color: Colors.dark.text,
+    fontSize: FontSize.md,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  pairMeta: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.xs,
+  },
+  pairProfit: {
+    alignItems: 'flex-end',
+  },
+  pairProfitPct: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    fontFamily: 'SpaceMono',
+  },
+  pairProfitAbs: {
+    fontSize: FontSize.xs,
+    fontFamily: 'SpaceMono',
+    marginTop: 2,
+  },
+
+  // === 空状态 ===
+  emptyTrades: {
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.xxl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.dark.surfaceBorder,
+    gap: Spacing.sm,
+  },
+  emptyTradesText: {
+    color: Colors.dark.textMuted,
+    fontSize: FontSize.md,
+  },
+
+  // === 未连接空状态 ===
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+  },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.dark.primaryBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  emptyTitle: {
+    color: Colors.dark.text,
+    fontSize: FontSize.xxl,
+    fontWeight: '700',
+  },
+  emptySubtitle: {
+    color: Colors.dark.textSecondary,
+    fontSize: FontSize.md,
+    textAlign: 'center',
+  },
+  connectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.dark.primary,
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+  },
+  connectButtonText: {
+    color: '#FFF',
+    fontSize: FontSize.lg,
+    fontWeight: '600',
+  },
+});
