@@ -64,7 +64,7 @@ export interface Trade {
     max_rate: number;
     open_order_id?: string;
     strategy: string;
-    timeframe: string;
+    timeframe: string | number;
     exchange: string;
     leverage: number;
     enter_tag?: string;
@@ -73,6 +73,70 @@ export interface Trade {
     trade_duration?: number;      // 持仓时长（分钟）
     profit_ratio?: number;        // 利润比率（历史交易）
     sell_reason?: string;         // 旧版卖出原因
+    open_timestamp?: number;
+    close_timestamp?: number;
+    open_fill_timestamp?: number;
+    close_fill_timestamp?: number;
+    orders?: Array<{
+        ft_order_side?: string;
+        order_timestamp?: number;
+        order_filled_timestamp?: number;
+        safe_price?: number;
+        amount?: number;
+    }>;
+}
+
+export async function fetchExchangeCandlesWindow(
+    pair: string,
+    timeframe: string,
+    startTime: number,
+    endTime: number,
+    proxyBaseUrl?: string,
+): Promise<CandleData[]> {
+    const timeframeToMs = (value: string): number => {
+        const count = Number(value.slice(0, -1));
+        const unit = value.slice(-1);
+        if (!Number.isFinite(count)) return 60 * 60 * 1000;
+        if (unit === 'm') return count * 60 * 1000;
+        if (unit === 'h') return count * 60 * 60 * 1000;
+        if (unit === 'd') return count * 24 * 60 * 60 * 1000;
+        if (unit === 'w') return count * 7 * 24 * 60 * 60 * 1000;
+        return 60 * 60 * 1000;
+    };
+
+    const candleMs = timeframeToMs(timeframe);
+    const span = Math.max(candleMs, endTime - startTime);
+    const targetCount = Math.max(120, Math.ceil(span / candleMs) + 24);
+    const allCandles: CandleData[] = [];
+    let cursor = startTime;
+    let remaining = targetCount;
+
+    while (cursor <= endTime && remaining > 0) {
+        const batchLimit = Math.min(1000, remaining);
+        const batch = await fetchExchangeCandles(
+            pair,
+            timeframe,
+            batchLimit,
+            proxyBaseUrl,
+            cursor,
+            endTime,
+        );
+        if (!batch.length) break;
+
+        allCandles.push(...batch);
+        const lastOpen = batch[batch.length - 1]?.date;
+        if (!lastOpen || lastOpen < cursor) break;
+
+        cursor = lastOpen + candleMs;
+        remaining -= batch.length;
+
+        if (batch.length < batchLimit) {
+            break;
+        }
+    }
+
+    return Array.from(new Map(allCandles.map((item) => [item.date, item])).values())
+        .sort((a, b) => a.date - b.date);
 }
 
 // 利润摘要
@@ -131,6 +195,12 @@ export interface Performance {
     profit: number;
     profit_pct: number;
     count: number;
+}
+
+export interface WhitelistResponse {
+    whitelist: string[];
+    length: number;
+    method: string[];
 }
 
 // K 线（蜡烛图）数据 - 对应 api_schemas.py 的 PairHistory
@@ -370,6 +440,12 @@ class FreqtradeClient {
         return data;
     }
 
+    /** 获取当前白名单 - GET /api/v1/whitelist */
+    async getWhitelist(): Promise<WhitelistResponse> {
+        const { data } = await this.client.get('/api/v1/whitelist');
+        return data;
+    }
+
     /**
      * 获取 K 线（蜡烛图）数据 - GET /api/v1/pair_candles
      * 对接后端 api_trading.py 的 pair_candles 端点
@@ -477,9 +553,9 @@ class FreqtradeClient {
         return data;
     }
 
-    /** 手动开仓 - POST /api/v1/forceentry */
+    /** 手动开仓 - POST /api/v1/forceenter */
     async forceEntry(pair: string, side: 'long' | 'short', stakeAmount?: number): Promise<Trade> {
-        const { data } = await this.client.post('/api/v1/forceentry', {
+        const { data } = await this.client.post('/api/v1/forceenter', {
             pair,
             side,
             stakeamount: stakeAmount,
@@ -546,6 +622,8 @@ export async function fetchExchangeCandles(
     timeframe: string,
     limit: number = 100,
     proxyBaseUrl?: string,
+    startTime?: number,
+    endTime?: number,
 ): Promise<CandleData[]> {
     // 解析 Freqtrade 格式的交易对
     // "SOL/USDT:USDT" → symbol="SOLUSDT", 使用合约 API
@@ -559,7 +637,18 @@ export async function fetchExchangeCandles(
     const base = proxyBaseUrl
         ? proxyBaseUrl.replace(/\/$/, '') + path
         : (isFutures ? 'https://fapi.binance.com' + path : 'https://api.binance.com' + path);
-    const url = `${base}?symbol=${symbol}&interval=${timeframe}&limit=${limit}`
+    const params = new URLSearchParams({
+        symbol,
+        interval: timeframe,
+        limit: String(limit),
+    });
+    if (typeof startTime === 'number') {
+        params.set('startTime', String(startTime));
+    }
+    if (typeof endTime === 'number') {
+        params.set('endTime', String(endTime));
+    }
+    const url = `${base}?${params.toString()}`
 
     console.log(`📊 获取 K 线: ${url}`);
 

@@ -2,7 +2,7 @@
 // 以模态形式从设置页面或仪表盘打开
 // 支持 SSH 隧道（http://localhost:8080）和 HTTPS（https://domain.com）两种方式
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -14,6 +14,7 @@ import {
     ScrollView,
     ActivityIndicator,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
@@ -21,7 +22,7 @@ import { useBotStore } from '@/src/stores/useBotStore';
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { connect, error } = useBotStore();
+    const { connect, error, loadSavedServer, server } = useBotStore();
 
     // 表单状态
     const [name, setName] = useState('我的 Bot');          // Bot 显示名称
@@ -31,6 +32,30 @@ export default function LoginScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [localError, setLocalError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        let mounted = true;
+
+        const restoreSavedForm = async () => {
+            const savedServer = server ?? (await loadSavedServer());
+            if (!savedServer || !mounted) return;
+
+            setName(savedServer.name || '鎴戠殑 Bot');
+            setUrl(savedServer.url || '');
+            setUsername(savedServer.username || 'freqtrader');
+
+            const savedPassword = await SecureStore.getItemAsync(`ft_pwd_${savedServer.id}`);
+            if (mounted && savedPassword) {
+                setPassword(savedPassword);
+            }
+        };
+
+        restoreSavedForm();
+
+        return () => {
+            mounted = false;
+        };
+    }, [loadSavedServer, server]);
 
     // 处理连接
     const handleConnect = async () => {

@@ -1,23 +1,19 @@
-// Tab 导航布局 - 底部导航栏配置
-// 基于 Stitch 设计：Dashboard / Trades / Bots / History / Settings
-
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Animated, Pressable } from 'react-native';
-import { useRef } from 'react';
+import { Animated, Platform, Pressable } from 'react-native';
+
 import { Colors } from '@/constants/Colors';
+import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
 
-// 自定义动画的底部 Tab 按钮
 const AnimatedTabBarButton = (props: any) => {
-  const { children, onPress, accessibilityState } = props;
-  const isSelected = accessibilityState?.selected;
+  const { children, onPress } = props;
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
     Animated.spring(scale, {
-      toValue: 0.92,
+      toValue: 0.94,
       useNativeDriver: true,
       speed: 80,
       bounciness: 0,
@@ -50,6 +46,18 @@ const AnimatedTabBarButton = (props: any) => {
 
 export default function TabLayout() {
   const language = useI18nStore((s) => s.language);
+  const isConnected = useBotStore((s) => s.isConnected);
+  const isLoading = useBotStore((s) => s.isLoading);
+  const server = useBotStore((s) => s.server);
+  const servers = useBotStore((s) => s.servers);
+  const activeServerId = useBotStore((s) => s.activeServerId);
+  const restoreSession = useBotStore((s) => s.restoreSession);
+
+  useEffect(() => {
+    const hasSavedConnection = !!server || !!activeServerId || servers.length > 0;
+    if (!hasSavedConnection || isConnected || isLoading) return;
+    restoreSession();
+  }, [activeServerId, isConnected, isLoading, restoreSession, server, servers.length]);
 
   return (
     <Tabs
@@ -57,36 +65,37 @@ export default function TabLayout() {
         sceneStyle: {
           backgroundColor: Colors.dark.background,
         },
-        // Tab 栏样式 - 优化高度与质感
         tabBarStyle: {
-          backgroundColor: Colors.dark.tabBar,
+          position: 'absolute',
+          left: 12,
+          right: 12,
+          bottom: Platform.OS === 'ios' ? 16 : 12,
+          backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.surfaceBorder,
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 70,
-          paddingBottom: Platform.OS === 'ios' ? 30 : 12,
+          borderRadius: 24,
+          height: Platform.OS === 'ios' ? 78 : 66,
+          paddingBottom: Platform.OS === 'ios' ? 18 : 10,
           paddingTop: 8,
+          paddingHorizontal: 8,
           elevation: 10,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
+          shadowOpacity: 0.18,
+          shadowRadius: 12,
         },
-        // 选中/未选中颜色 - 蓝色强调
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.tabIconDefault,
-        // 标签文字样式
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '600',
-          letterSpacing: 0.5,
-          textTransform: 'uppercase',
+          marginTop: 2,
         },
-        // 头部样式 - 无阴影 + 深色背景
         headerStyle: {
           backgroundColor: Colors.dark.background,
-          elevation: 0,         // Android 去阴影
-          shadowOpacity: 0,     // iOS 去阴影
-          borderBottomWidth: 0, // 去掉底部边框
+          elevation: 0,
+          shadowOpacity: 0,
+          borderBottomWidth: 0,
         },
         headerTintColor: Colors.dark.text,
         headerTitleStyle: {

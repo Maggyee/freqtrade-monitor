@@ -3,6 +3,7 @@
 
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import axios from 'axios';
 import FreqtradeClient, {
     type BotServer,
     type Trade,
@@ -10,6 +11,7 @@ import FreqtradeClient, {
     type Balance,
     type BotState,
     type DailyProfit,
+    type WhitelistResponse,
 } from '../api/freqtradeClient';
 
 const SERVERS_KEY = 'ft_servers_configs';
@@ -26,6 +28,17 @@ const toServerName = (url: string, username: string, index: number) => {
     } catch {
         return `服务器 ${index + 1}`;
     }
+};
+
+const getErrorMessage = (error: any, fallback: string) => {
+    if (axios.isAxiosError(error)) {
+        const data = error.response?.data;
+        if (data && typeof data === 'object') {
+            if ('error' in data && data.error) return String(data.error);
+            if ('detail' in data && data.detail) return String(data.detail);
+        }
+    }
+    return error?.message || fallback;
 };
 
 // === 状态类型定义 ===
@@ -47,6 +60,7 @@ interface BotStoreState {
     profit: Profit | null;             // 利润摘要
     dailyProfit: DailyProfit | null;   // 每日利润
     tradeHistory: Trade[];             // 历史交易
+    whitelist: string[];               // 当前可交易白名单
 
     // --- 操作方法 ---
     // 连接管理
@@ -65,6 +79,7 @@ interface BotStoreState {
 
     // 交易操作
     forceExit: (tradeId: number) => Promise<boolean>;
+    forceEntry: (pair: string, side: 'long' | 'short', stakeAmount?: number) => Promise<boolean>;
     startBot: () => Promise<boolean>;
     stopBot: () => Promise<boolean>;
 
@@ -91,6 +106,7 @@ export const useBotStore = create<BotStoreState>((set, get) => ({
     profit: null,
     dailyProfit: null,
     tradeHistory: [],
+    whitelist: [],
     // 服务器地址（派生属性）
     get serverUrl() {
         return get().server?.url ?? '';
@@ -337,13 +353,14 @@ export const useBotStore = create<BotStoreState>((set, get) => ({
 
         try {
             // 并行请求所有数据，提高加载速度
-            const [botState, balance, openTrades, profit, dailyProfit, tradeHistoryRes] = await Promise.allSettled([
+            const [botState, balance, openTrades, profit, dailyProfit, tradeHistoryRes, whitelist] = await Promise.allSettled([
                 client.getBotState(),
                 client.getBalance(),
                 client.getOpenTrades(),
                 client.getProfit(),
                 client.getDaily(7),
                 client.getTradeHistory(50),
+                client.getWhitelist(),
             ]);
 
             set({
@@ -353,6 +370,7 @@ export const useBotStore = create<BotStoreState>((set, get) => ({
                 profit: profit.status === 'fulfilled' ? profit.value : null,
                 dailyProfit: dailyProfit.status === 'fulfilled' ? dailyProfit.value : null,
                 tradeHistory: tradeHistoryRes.status === 'fulfilled' ? tradeHistoryRes.value.trades : [],
+                whitelist: whitelist.status === 'fulfilled' ? whitelist.value.whitelist : [],
                 isLoading: false,
             });
         } catch (error: any) {
@@ -406,6 +424,25 @@ export const useBotStore = create<BotStoreState>((set, get) => ({
             return true;
         } catch (error: any) {
             set({ error: `平仓失败: ${error?.message}` });
+            return false;
+        }
+    },
+
+    /** 手动开仓 */
+    forceEntry: async (pair: string, side: 'long' | 'short', stakeAmount?: number) => {
+        const { client, isConnected } = get();
+        if (!client || !isConnected) return false;
+
+        try {
+            await client.forceEntry(pair, side, stakeAmount);
+            set({ error: null });
+            await Promise.all([
+                get().refreshTrades(),
+                get().refreshProfit(),
+            ]);
+            return true;
+        } catch (error: any) {
+            set({ error: getErrorMessage(error, '开仓失败') });
             return false;
         }
     },

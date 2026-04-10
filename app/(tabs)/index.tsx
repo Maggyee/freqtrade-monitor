@@ -28,6 +28,8 @@ export default function DashboardScreen() {
   const {
     isConnected,
     isLoading,
+    server,
+    servers,
     botState,
     balance,
     openTrades,
@@ -40,6 +42,7 @@ export default function DashboardScreen() {
   } = useBotStore();
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [isStoppingBot, setIsStoppingBot] = useState(false);
+  const hasSavedConnection = !!server || servers.length > 0;
 
   // 下拉刷新
   const onRefresh = useCallback(async () => {
@@ -75,16 +78,28 @@ export default function DashboardScreen() {
           <View style={styles.emptyIconWrap}>
             <Ionicons name="analytics" size={48} color={Colors.dark.primary} />
           </View>
-          <Text style={styles.emptyTitle}>{t('欢迎使用 Freqtrade', 'Welcome to Freqtrade')}</Text>
-          <Text style={styles.emptySubtitle}>{t('连接你的机器人开始监控交易', 'Connect your bot to start monitoring')}</Text>
-          <TouchableOpacity
-            style={styles.connectButton}
-            onPress={() => router.push('/login')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="link" size={18} color="#FFF" />
-            <Text style={styles.connectButtonText}>{t('连接机器人', 'Connect Bot')}</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptyTitle}>
+            {hasSavedConnection
+              ? t('正在恢复连接', 'Restoring connection')
+              : t('欢迎使用 Freqtrade', 'Welcome to Freqtrade')}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {hasSavedConnection
+              ? t('检测到已保存的 Bot 配置，正在自动重连。', 'A saved bot was found and is reconnecting automatically.')
+              : t('连接你的机器人开始监控交易', 'Connect your bot to start monitoring')}
+          </Text>
+          {hasSavedConnection ? (
+            <ActivityIndicator color={Colors.dark.primary} size="small" />
+          ) : (
+            <TouchableOpacity
+              style={styles.connectButton}
+              onPress={() => router.push('/login')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="link" size={18} color="#FFF" />
+              <Text style={styles.connectButtonText}>{t('连接机器人', 'Connect Bot')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
