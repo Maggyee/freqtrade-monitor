@@ -1,62 +1,43 @@
-// 根布局文件 - 控制整个 App 的导航结构和主题
-// 包含：启动时的 Session 恢复逻辑 + 暗色主题
-
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
 
-import { Colors } from '@/constants/Colors';
+import { getThemeColors } from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
 
-export {
-  // 捕获 Layout 组件抛出的错误
-  ErrorBoundary,
-} from 'expo-router';
+export { ErrorBoundary } from 'expo-router';
 
 export const unstable_settings = {
-  // 确保在页面重载时保留返回按钮
   initialRouteName: '(tabs)',
 };
 
-// 自定义暗色主题 - 使用我们的配色方案
-const FreqtradeDarkTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: Colors.dark.primary,
-    background: Colors.dark.background,
-    card: Colors.dark.surface,
-    text: Colors.dark.text,
-    border: Colors.dark.surfaceBorder,
-    notification: Colors.dark.warning,
-  },
-};
-
 export default function RootLayout() {
-  const [loaded, error] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
+
   const restoreSession = useBotStore((s) => s.restoreSession);
   const loadLanguage = useI18nStore((s) => s.loadLanguage);
+  const loadAppearance = useAppearanceStore((s) => s.loadSettings);
+  const appearanceReady = useAppearanceStore((s) => s.isReady);
 
-  // 字体加载错误处理
   useEffect(() => {
-    if (error) throw error;
-  }, [error]);
+    if (fontError) throw fontError;
+  }, [fontError]);
 
-  // 字体加载完成后尝试恢复登录状态
   useEffect(() => {
-    if (loaded) {
-      loadLanguage();
-      restoreSession();
-    }
-  }, [loaded, loadLanguage, restoreSession]);
+    if (!fontsLoaded) return;
+    loadAppearance();
+    loadLanguage();
+    restoreSession();
+  }, [fontsLoaded, loadAppearance, loadLanguage, restoreSession]);
 
-  if (!loaded) {
+  if (!fontsLoaded || !appearanceReady) {
     return <View style={styles.appBackground} />;
   }
 
@@ -65,17 +46,30 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const colors = getThemeColors(themeMode);
+
+  const appTheme = {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.surfaceBorder,
+      notification: colors.warning,
+    },
+  };
 
   return (
-    <View style={styles.appBackground}>
-      {/* 固定使用暗色主题（交易 App 标配） */}
-      <ThemeProvider value={FreqtradeDarkTheme}>
-        {/* 状态栏亮色文字（配合暗色背景） */}
-        <StatusBar style="light" backgroundColor={Colors.dark.background} translucent={false} />
+    <View style={[styles.appBackground, { backgroundColor: colors.background }]}>
+      <ThemeProvider value={appTheme}>
+        <StatusBar style="light" backgroundColor={colors.background} translucent={false} />
         <Stack
           screenOptions={{
             animation: 'slide_from_right',
-            contentStyle: { backgroundColor: Colors.dark.background },
+            contentStyle: { backgroundColor: colors.background },
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -85,16 +79,16 @@ function RootLayoutNav() {
               title: language === 'en' ? 'Connect Bot' : '连接机器人',
               presentation: 'modal',
               animation: 'slide_from_bottom',
-              headerStyle: { backgroundColor: Colors.dark.surface },
-              headerTintColor: Colors.dark.text,
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
             }}
           />
           <Stack.Screen
             name="trade/[id]"
             options={{
               title: language === 'en' ? 'Trade Detail' : '交易详情',
-              headerStyle: { backgroundColor: Colors.dark.background },
-              headerTintColor: Colors.dark.text,
+              headerStyle: { backgroundColor: colors.background },
+              headerTintColor: colors.text,
               headerShadowVisible: false,
             }}
           />
@@ -104,9 +98,9 @@ function RootLayoutNav() {
               title: language === 'en' ? 'Global Parameters' : '全局参数',
               presentation: 'card',
               animation: 'slide_from_right',
-              headerStyle: { backgroundColor: Colors.dark.surface },
-              headerTintColor: Colors.dark.text,
-              contentStyle: { backgroundColor: Colors.dark.background },
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
+              contentStyle: { backgroundColor: colors.background },
             }}
           />
           <Stack.Screen
@@ -115,9 +109,9 @@ function RootLayoutNav() {
               title: language === 'en' ? 'Theme Settings' : '主题设置',
               presentation: 'card',
               animation: 'slide_from_right',
-              headerStyle: { backgroundColor: Colors.dark.surface },
-              headerTintColor: Colors.dark.text,
-              contentStyle: { backgroundColor: Colors.dark.background },
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
+              contentStyle: { backgroundColor: colors.background },
             }}
           />
           <Stack.Screen
@@ -126,9 +120,9 @@ function RootLayoutNav() {
               title: language === 'en' ? 'Font Settings' : '字体设置',
               presentation: 'card',
               animation: 'slide_from_right',
-              headerStyle: { backgroundColor: Colors.dark.surface },
-              headerTintColor: Colors.dark.text,
-              contentStyle: { backgroundColor: Colors.dark.background },
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
+              contentStyle: { backgroundColor: colors.background },
             }}
           />
           <Stack.Screen
@@ -137,9 +131,9 @@ function RootLayoutNav() {
               title: language === 'en' ? 'Language Settings' : '语言设置',
               presentation: 'card',
               animation: 'slide_from_right',
-              headerStyle: { backgroundColor: Colors.dark.surface },
-              headerTintColor: Colors.dark.text,
-              contentStyle: { backgroundColor: Colors.dark.background },
+              headerStyle: { backgroundColor: colors.surface },
+              headerTintColor: colors.text,
+              contentStyle: { backgroundColor: colors.background },
             }}
           />
         </Stack>
@@ -151,6 +145,6 @@ function RootLayoutNav() {
 const styles = StyleSheet.create({
   appBackground: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+    backgroundColor: '#070B14',
   },
 });

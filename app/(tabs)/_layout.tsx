@@ -3,7 +3,8 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated, Platform, Pressable } from 'react-native';
 
-import { Colors } from '@/constants/Colors';
+import { getScaledFontSize, getThemeColors } from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
 
@@ -46,6 +47,9 @@ const AnimatedTabBarButton = (props: any) => {
 
 export default function TabLayout() {
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
   const isConnected = useBotStore((s) => s.isConnected);
   const isLoading = useBotStore((s) => s.isLoading);
   const server = useBotStore((s) => s.server);
@@ -63,15 +67,15 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         sceneStyle: {
-          backgroundColor: Colors.dark.background,
+          backgroundColor: colors.background,
         },
         tabBarStyle: {
           position: 'absolute',
           left: 12,
           right: 12,
           bottom: Platform.OS === 'ios' ? 16 : 12,
-          backgroundColor: Colors.dark.surface,
-          borderTopColor: Colors.dark.surfaceBorder,
+          backgroundColor: colors.surface,
+          borderTopColor: colors.surfaceBorder,
           borderTopWidth: 1,
           borderRadius: 24,
           height: Platform.OS === 'ios' ? 78 : 66,
@@ -84,23 +88,23 @@ export default function TabLayout() {
           shadowOpacity: 0.18,
           shadowRadius: 12,
         },
-        tabBarActiveTintColor: Colors.dark.primary,
-        tabBarInactiveTintColor: Colors.dark.tabIconDefault,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: getScaledFontSize(10, fontScale),
           fontWeight: '600',
           marginTop: 2,
         },
         headerStyle: {
-          backgroundColor: Colors.dark.background,
+          backgroundColor: colors.background,
           elevation: 0,
           shadowOpacity: 0,
           borderBottomWidth: 0,
         },
-        headerTintColor: Colors.dark.text,
+        headerTintColor: colors.text,
         headerTitleStyle: {
           fontWeight: '700',
-          fontSize: 18,
+          fontSize: getScaledFontSize(18, fontScale),
         },
       }}
     >

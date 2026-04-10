@@ -17,12 +17,15 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const {
     isConnected,
@@ -458,7 +461,11 @@ export default function SettingsScreen() {
           <Ionicons name="moon-outline" size={18} color={Colors.dark.primary} />
           <View style={styles.settingInfo}>
             <Text style={styles.settingTitle}>{t('主题', 'Theme')}</Text>
-            <Text style={styles.settingSubtitle}>{t('调整视觉风格与对比度', 'Adjust app look and contrast')}</Text>
+            <Text style={styles.settingSubtitle}>
+              {themeMode === 'amoled'
+                ? t('当前为纯黑主题', 'Current: AMOLED Black')
+                : t('当前为深色主题', 'Current: Deep Dark')}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
         </Pressable>
@@ -467,6 +474,13 @@ export default function SettingsScreen() {
           <Ionicons name="text-outline" size={18} color={Colors.dark.primary} />
           <View style={styles.settingInfo}>
             <Text style={styles.settingTitle}>{t('字体设置', 'Font Settings')}</Text>
+            <Text style={styles.settingSubtitle}>
+              {{
+                small: t('当前为紧凑字号', 'Current: Compact'),
+                normal: t('当前为标准字号', 'Current: Standard'),
+                large: t('当前为舒适字号', 'Current: Comfort'),
+              }[fontScale]}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
         </Pressable>

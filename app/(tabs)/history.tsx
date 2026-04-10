@@ -11,13 +11,24 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import {
+  BorderRadius,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 
 export default function HistoryScreen() {
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
+  const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const { isConnected, isLoading, server, servers, tradeHistory, refreshAll } = useBotStore();
   const hasSavedConnection = !!server || servers.length > 0;
@@ -39,22 +50,6 @@ export default function HistoryScreen() {
       return bTs - aTs;
     });
   }, [tradeHistory]);
-
-  if (!isConnected) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.emptyCenter}>
-          <View style={styles.emptyIconWrap}>
-            <Ionicons name="time" size={36} color={Colors.dark.primary} />
-          </View>
-          <Text style={styles.emptyText}>
-            {hasSavedConnection ? t('正在恢复连接', 'Restoring connection') : t('请先连接 Bot', 'Connect bot first')}
-          </Text>
-          {hasSavedConnection ? <ActivityIndicator color={Colors.dark.primary} size="small" /> : null}
-        </View>
-      </View>
-    );
-  }
 
   const formatDuration = (durationMinutes: number) => {
     if (!durationMinutes) return '-';
@@ -89,30 +84,54 @@ export default function HistoryScreen() {
   const winRate = totalTrades > 0 ? ((winTrades / totalTrades) * 100).toFixed(1) : '0.0';
   const totalPnl = sortedTradeHistory.reduce((sum: number, item: any) => sum + (item.profit_abs ?? 0), 0);
 
+  if (!isConnected) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.emptyCenter}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: colors.primaryBg }]}>
+            <Ionicons name="time" size={36} color={colors.primary} />
+          </View>
+          <Text style={[styles.emptyText, { color: colors.textSecondary, fontSize: fs('lg') }]}>
+            {hasSavedConnection ? t('正在恢复连接', 'Restoring connection') : t('请先连接 Bot', 'Connect bot first')}
+          </Text>
+          {hasSavedConnection ? <ActivityIndicator color={colors.primary} size="small" /> : null}
+        </View>
+      </View>
+    );
+  }
+
   const renderItem = ({ item }: { item: any }) => {
     const isProfit = (item.profit_abs ?? 0) >= 0;
-    const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+    const profitColor = isProfit ? colors.profit : colors.loss;
     const profitPct = ((item.profit_ratio ?? item.profit_pct ?? 0) * 100).toFixed(2);
 
     return (
       <Pressable
-        style={({ pressed }) => [styles.historyCard, pressed && styles.historyCardPressed]}
+        style={({ pressed }) => [
+          styles.historyCard,
+          {
+            backgroundColor: pressed ? colors.surfaceLight : colors.surface,
+            borderColor: colors.surfaceBorder,
+          },
+        ]}
         onPress={() => router.push(`/trade/${item.trade_id}` as any)}
       >
         <View style={styles.cardHeader}>
           <View style={styles.cardHeaderLeft}>
             <View style={[styles.resultDot, { backgroundColor: profitColor }]} />
-            <Text style={styles.cardPair}>{(item.pair ?? '').replace(':', '/')}</Text>
+            <Text style={[styles.cardPair, { color: colors.text, fontSize: fs('md') }]}>
+              {(item.pair ?? '').replace(':', '/')}
+            </Text>
             <View
               style={[
                 styles.directionBadge,
-                { backgroundColor: item.is_short ? Colors.dark.lossBg : Colors.dark.profitBg },
+                { backgroundColor: item.is_short ? colors.lossBg : colors.profitBg },
               ]}
             >
               <Text
                 style={[
                   styles.directionText,
-                  { color: item.is_short ? Colors.dark.loss : Colors.dark.profit },
+                  { color: item.is_short ? colors.loss : colors.profit, fontSize: fs(9) },
                 ]}
               >
                 {item.is_short ? t('空', 'S') : t('多', 'L')}
@@ -120,57 +139,83 @@ export default function HistoryScreen() {
             </View>
           </View>
           <View style={styles.cardHeaderRight}>
-            <Text style={[styles.cardProfit, { color: profitColor }]}>
+            <Text style={[styles.cardProfit, { color: profitColor, fontSize: fs('md') }]}>
               {isProfit ? '+' : ''}
               {(item.profit_abs ?? 0).toFixed(2)}
             </Text>
-            <Text style={[styles.cardProfitPct, { color: profitColor }]}>
+            <Text style={[styles.cardProfitPct, { color: profitColor, fontSize: fs('xs') }]}>
               {isProfit ? '+' : ''}
               {profitPct}%
             </Text>
           </View>
         </View>
 
-        <View style={styles.cardDetails}>
+        <View style={[styles.cardDetails, { borderTopColor: colors.surfaceBorder }]}>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>{t('入场', 'Open')}</Text>
-            <Text style={styles.detailValue}>{(item.open_rate ?? 0).toFixed(4)}</Text>
+            <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: fs(9) }]}>
+              {t('开仓', 'Open')}
+            </Text>
+            <Text style={[styles.detailValue, { color: colors.textSecondary, fontSize: fs('sm') }]}>
+              {(item.open_rate ?? 0).toFixed(4)}
+            </Text>
           </View>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>{t('出场', 'Close')}</Text>
-            <Text style={styles.detailValue}>{(item.close_rate ?? 0).toFixed(4)}</Text>
+            <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: fs(9) }]}>
+              {t('平仓', 'Close')}
+            </Text>
+            <Text style={[styles.detailValue, { color: colors.textSecondary, fontSize: fs('sm') }]}>
+              {(item.close_rate ?? 0).toFixed(4)}
+            </Text>
           </View>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>{t('持仓', 'Duration')}</Text>
-            <Text style={styles.detailValue}>{formatDuration(item.trade_duration ?? 0)}</Text>
+            <Text style={[styles.detailLabel, { color: colors.textMuted, fontSize: fs(9) }]}>
+              {t('持仓', 'Duration')}
+            </Text>
+            <Text style={[styles.detailValue, { color: colors.textSecondary, fontSize: fs('sm') }]}>
+              {formatDuration(item.trade_duration ?? 0)}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.cardFooter}>
-          <Text style={styles.footerText}>{formatDate(item.close_date ?? item.open_date)}</Text>
-          <Text style={styles.footerText}>{item.exit_reason ?? item.sell_reason ?? '-'}</Text>
+        <View style={[styles.cardFooter, { borderTopColor: colors.surfaceBorder }]}>
+          <Text style={[styles.footerText, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {formatDate(item.close_date ?? item.open_date)}
+          </Text>
+          <Text style={[styles.footerText, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {item.exit_reason ?? item.sell_reason ?? '-'}
+          </Text>
         </View>
       </Pressable>
     );
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.overviewRow}>
-        <View style={styles.overviewCard}>
-          <Text style={styles.overviewLabel}>{t('总交易', 'Trades')}</Text>
-          <Text style={styles.overviewValue}>{totalTrades}</Text>
+        <View style={[styles.overviewCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+          <Text style={[styles.overviewLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('总交易', 'Trades')}
+          </Text>
+          <Text style={[styles.overviewValue, { color: colors.text, fontSize: fs('lg') }]}>
+            {totalTrades}
+          </Text>
         </View>
-        <View style={styles.overviewCard}>
-          <Text style={styles.overviewLabel}>{t('胜率', 'Win Rate')}</Text>
-          <Text style={[styles.overviewValue, { color: Colors.dark.primary }]}>{winRate}%</Text>
+        <View style={[styles.overviewCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+          <Text style={[styles.overviewLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('胜率', 'Win Rate')}
+          </Text>
+          <Text style={[styles.overviewValue, { color: colors.primary, fontSize: fs('lg') }]}>
+            {winRate}%
+          </Text>
         </View>
-        <View style={styles.overviewCard}>
-          <Text style={styles.overviewLabel}>{t('总盈亏', 'Total P&L')}</Text>
+        <View style={[styles.overviewCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+          <Text style={[styles.overviewLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('总盈亏', 'Total P&L')}
+          </Text>
           <Text
             style={[
               styles.overviewValue,
-              { color: totalPnl >= 0 ? Colors.dark.profit : Colors.dark.loss },
+              { color: totalPnl >= 0 ? colors.profit : colors.loss, fontSize: fs('lg') },
             ]}
           >
             {totalPnl >= 0 ? '+' : ''}
@@ -188,16 +233,18 @@ export default function HistoryScreen() {
           <RefreshControl
             refreshing={isLoading}
             onRefresh={onRefresh}
-            tintColor={Colors.dark.primary}
-            colors={[Colors.dark.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
         ListEmptyComponent={
-          <View style={styles.emptyCard}>
-            <Ionicons name="time-outline" size={48} color={Colors.dark.textMuted} />
-            <Text style={styles.emptyCardText}>{t('暂无历史记录', 'No history')}</Text>
-            <Text style={styles.emptyCardSubtext}>
-              {t('完成的交易将在这里显示', 'Completed trades will appear here')}
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Ionicons name="time-outline" size={48} color={colors.textMuted} />
+            <Text style={[styles.emptyCardText, { color: colors.textSecondary, fontSize: fs('lg') }]}>
+              {t('暂无历史记录', 'No history')}
+            </Text>
+            <Text style={[styles.emptyCardSubtext, { color: colors.textMuted, fontSize: fs('sm') }]}>
+              {t('完成的交易将会在这里显示', 'Completed trades will appear here')}
             </Text>
           </View>
         }
@@ -209,7 +256,6 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
@@ -224,34 +270,23 @@ const styles = StyleSheet.create({
   },
   overviewCard: {
     flex: 1,
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
   },
   overviewLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
     marginBottom: Spacing.xs,
   },
   overviewValue: {
-    color: Colors.dark.text,
-    fontSize: FontSize.lg,
     fontWeight: '700',
     fontFamily: 'SpaceMono',
   },
   historyCard: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-  },
-  historyCardPressed: {
-    backgroundColor: Colors.dark.surfaceLight,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -270,8 +305,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   cardPair: {
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
     fontWeight: '700',
   },
   directionBadge: {
@@ -280,40 +313,32 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   directionText: {
-    fontSize: 9,
     fontWeight: '800',
   },
   cardHeaderRight: {
     alignItems: 'flex-end',
   },
   cardProfit: {
-    fontSize: FontSize.md,
     fontWeight: '700',
     fontFamily: 'SpaceMono',
   },
   cardProfitPct: {
-    fontSize: FontSize.xs,
     fontFamily: 'SpaceMono',
   },
   cardDetails: {
     flexDirection: 'row',
     paddingTop: Spacing.sm,
     borderTopWidth: 0.5,
-    borderTopColor: Colors.dark.surfaceBorder,
   },
   detailItem: {
     flex: 1,
   },
   detailLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: 9,
     fontWeight: '600',
     letterSpacing: 0.5,
     marginBottom: 2,
   },
   detailValue: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.sm,
     fontFamily: 'SpaceMono',
     fontWeight: '600',
   },
@@ -323,12 +348,8 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
     paddingTop: Spacing.sm,
     borderTopWidth: 0.5,
-    borderTopColor: Colors.dark.surfaceBorder,
   },
-  footerText: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-  },
+  footerText: {},
   emptyCenter: {
     flex: 1,
     justifyContent: 'center',
@@ -339,33 +360,23 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: Colors.dark.primaryBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyText: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.lg,
     fontWeight: '600',
   },
   emptyCard: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.xxxl,
     alignItems: 'center',
     gap: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     marginTop: Spacing.lg,
   },
   emptyCardText: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.lg,
     fontWeight: '600',
     marginTop: Spacing.sm,
   },
-  emptyCardSubtext: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.sm,
-  },
+  emptyCardSubtext: {},
 });

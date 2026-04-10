@@ -1,29 +1,36 @@
-// 仪表盘首页 - 基于 Stitch 设计稿优化
-// 顶部：总资产 + 24h P&L
-// 中部：Bot Status 卡片 + 柱状图 + 快捷控制按钮
-// 底部：Active Pairs 列表
-
 import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  TouchableOpacity,
-  Pressable,
   ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
+
+import {
+  BorderRadius,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
-import { toDisplayProfitPercent } from '../../src/utils/profit';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
+import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 export default function DashboardScreen() {
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
+  const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const {
     isConnected,
@@ -44,7 +51,6 @@ export default function DashboardScreen() {
   const [isStoppingBot, setIsStoppingBot] = useState(false);
   const hasSavedConnection = !!server || servers.length > 0;
 
-  // 下拉刷新
   const onRefresh = useCallback(async () => {
     await refreshAll();
   }, [refreshAll]);
@@ -57,7 +63,7 @@ export default function DashboardScreen() {
     } finally {
       setIsStartingBot(false);
     }
-  }, [isStartingBot, isStoppingBot, botState?.state, startBot]);
+  }, [botState?.state, isStartingBot, isStoppingBot, startBot]);
 
   const handleStopBot = useCallback(async () => {
     if (isStartingBot || isStoppingBot || botState?.state !== 'running') return;
@@ -67,366 +73,243 @@ export default function DashboardScreen() {
     } finally {
       setIsStoppingBot(false);
     }
-  }, [isStartingBot, isStoppingBot, botState?.state, stopBot]);
+  }, [botState?.state, isStartingBot, isStoppingBot, stopBot]);
 
-  // === 未连接状态 - 显示登录引导 ===
   if (!isConnected) {
     return (
-      <View style={styles.container}>
-        <View style={styles.emptyState}>
-          {/* 装饰性图标 */}
-          <View style={styles.emptyIconWrap}>
-            <Ionicons name="analytics" size={48} color={Colors.dark.primary} />
-          </View>
-          <Text style={styles.emptyTitle}>
-            {hasSavedConnection
-              ? t('正在恢复连接', 'Restoring connection')
-              : t('欢迎使用 Freqtrade', 'Welcome to Freqtrade')}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            {hasSavedConnection
-              ? t('检测到已保存的 Bot 配置，正在自动重连。', 'A saved bot was found and is reconnecting automatically.')
-              : t('连接你的机器人开始监控交易', 'Connect your bot to start monitoring')}
-          </Text>
-          {hasSavedConnection ? (
-            <ActivityIndicator color={Colors.dark.primary} size="small" />
-          ) : (
-            <TouchableOpacity
-              style={styles.connectButton}
-              onPress={() => router.push('/login')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="link" size={18} color="#FFF" />
-              <Text style={styles.connectButtonText}>{t('连接机器人', 'Connect Bot')}</Text>
-            </TouchableOpacity>
-          )}
+      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+        <View style={[styles.emptyIconWrap, { backgroundColor: colors.primaryBg }]}>
+          <Ionicons name="analytics" size={48} color={colors.primary} />
         </View>
+        <Text style={[styles.emptyTitle, { color: colors.text, fontSize: fs('xxl') }]}>
+          {hasSavedConnection ? t('正在恢复连接', 'Restoring connection') : t('欢迎使用 Freqtrade', 'Welcome to Freqtrade')}
+        </Text>
+        <Text style={[styles.emptySubtitle, { color: colors.textSecondary, fontSize: fs('md') }]}>
+          {hasSavedConnection
+            ? t('检测到已保存的连接，正在自动重连。', 'A saved bot was found and is reconnecting automatically.')
+            : t('先连接你的机器人，再查看资产和交易状态。', 'Connect your bot to see balances and trades.')}
+        </Text>
+        {hasSavedConnection ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
+          <TouchableOpacity
+            style={[styles.connectButton, { backgroundColor: colors.primary }]}
+            onPress={() => router.push('/login')}
+          >
+            <Ionicons name="link" size={18} color="#FFF" />
+            <Text style={[styles.connectButtonText, { fontSize: fs('lg') }]}>{t('连接机器人', 'Connect Bot')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
 
-  // === 已连接 - 显示仪表盘 ===
   const todayProfit = dailyProfit?.data?.[0];
   const totalBalance = balance?.total ?? 0;
   const stakeCurrency = balance?.stake ?? 'USDT';
   const totalProfitPct = profit?.profit_all_percent ?? 0;
   const totalProfitAbs = profit?.profit_all_coin ?? 0;
-  const isProfitable = totalProfitAbs >= 0;
-
-  // 今日 P&L
   const todayPnlAbs = todayProfit?.abs_profit ?? 0;
   const todayPnlPct = (todayProfit?.rel_profit ?? 0) * 100;
+  const isProfitable = totalProfitAbs >= 0;
   const isTodayProfit = todayPnlAbs >= 0;
-
-  // 近 7 天日利润数据（用于柱状图）
-  const last7Days = dailyProfit?.data?.slice(0, 7).reverse() ?? [];
-  const maxAbsProfit = Math.max(...last7Days.map(d => Math.abs(d.abs_profit)), 1);
-
-  const formatConfigPercent = (value?: number) => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
-    const display = Math.abs(value) <= 1 ? value * 100 : value;
-    return `${display.toFixed(2)}%`;
-  };
-
-  const roiSummary = (() => {
-    const roi = botState?.minimal_roi;
-    if (!roi || Object.keys(roi).length === 0) return '-';
-    const entries = Object.entries(roi)
-      .map(([minute, rate]) => ({ minute: Number(minute), rate }))
-      .filter((entry) => Number.isFinite(entry.minute))
-      .sort((a, b) => a.minute - b.minute);
-    if (!entries.length) return '-';
-    const first = entries[0];
-    const last = entries[entries.length - 1];
-    return `${first.minute}m:${(first.rate * 100).toFixed(2)}% ~ ${last.minute}m:${(last.rate * 100).toFixed(2)}%`;
-  })();
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
           refreshing={isLoading}
           onRefresh={onRefresh}
-          tintColor={Colors.dark.primary}
-          colors={[Colors.dark.primary]}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
         />
       }
     >
-      {/* 错误提示 */}
-      {error && (
-        <View style={styles.errorBanner}>
-          <Ionicons name="alert-circle" size={16} color={Colors.dark.warning} />
-          <Text style={styles.errorText}>{error}</Text>
+      {error ? (
+        <View style={[styles.errorBanner, { borderColor: `${colors.warning}33`, backgroundColor: `${colors.warning}12` }]}>
+          <Ionicons name="alert-circle" size={16} color={colors.warning} />
+          <Text style={[styles.errorText, { color: colors.warning, fontSize: fs('sm') }]}>{error}</Text>
         </View>
-      )}
+      ) : null}
 
-      {/* === 总资产区域 === */}
-      <View style={styles.portfolioSection}>
-        <Text style={styles.portfolioLabel}>{t('总资产估值', 'TOTAL PORTFOLIO VALUE')}</Text>
-        <Text style={styles.portfolioValue}>
-          {totalBalance.toFixed(2)}
-          <Text style={styles.portfolioCurrency}> {stakeCurrency}</Text>
+      <View style={styles.heroSection}>
+        <Text style={[styles.heroLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+          {t('总资产估值', 'TOTAL PORTFOLIO VALUE')}
         </Text>
-        {/* 24h P&L 指示器 */}
+        <Text style={[styles.heroValue, { color: colors.text, fontSize: fs('hero') }]}>
+          {totalBalance.toFixed(2)}
+          <Text style={[styles.heroCurrency, { color: colors.textSecondary, fontSize: fs('lg') }]}> {stakeCurrency}</Text>
+        </Text>
         <View style={styles.pnlRow}>
           <Ionicons
             name={isTodayProfit ? 'trending-up' : 'trending-down'}
             size={14}
-            color={isTodayProfit ? Colors.dark.profit : Colors.dark.loss}
+            color={isTodayProfit ? colors.profit : colors.loss}
           />
-          <Text style={[
-            styles.pnlText,
-            { color: isTodayProfit ? Colors.dark.profit : Colors.dark.loss }
-          ]}>
-            {isTodayProfit ? '+' : ''}{todayPnlAbs.toFixed(2)} ({isTodayProfit ? '+' : ''}{todayPnlPct.toFixed(1)}%)
+          <Text style={[styles.pnlText, { color: isTodayProfit ? colors.profit : colors.loss, fontSize: fs('sm') }]}>
+            {isTodayProfit ? '+' : ''}
+            {todayPnlAbs.toFixed(2)} ({isTodayProfit ? '+' : ''}
+            {todayPnlPct.toFixed(1)}%)
           </Text>
-          <Text style={styles.pnlLabel}>{t('24 小时盈亏', '24h P&L')}</Text>
+          <Text style={[styles.pnlLabel, { color: colors.textMuted, fontSize: fs('sm') }]}>
+            {t('24 小时盈亏', '24h P&L')}
+          </Text>
         </View>
       </View>
 
-      {/* === Bot Status 卡片 + 柱状图 === */}
-      <View style={styles.botStatusCard}>
-        <View style={styles.botStatusHeader}>
+      <View style={[styles.statusCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <View style={styles.statusHeader}>
           <View>
-            <Text style={styles.botStatusLabel}>{t('机器人状态', 'Bot Status')}</Text>
-            <View style={styles.botStatusRow}>
-              <View style={[
-                styles.statusDot,
-                { backgroundColor: botState?.state === 'running' ? Colors.dark.profit : Colors.dark.loss }
-              ]} />
-              <Text style={[
-                styles.botStatusText,
-                { color: botState?.state === 'running' ? Colors.dark.text : Colors.dark.loss }
-              ]}>
+            <Text style={[styles.cardLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+              {t('机器人状态', 'Bot Status')}
+            </Text>
+            <View style={styles.statusRow}>
+              <View
+                style={[
+                  styles.statusDot,
+                  { backgroundColor: botState?.state === 'running' ? colors.profit : colors.loss },
+                ]}
+              />
+              <Text style={[styles.statusText, { color: colors.text, fontSize: fs('md') }]}>
                 {botState?.state === 'running' ? t('运行中', 'Running') : t('已停止', 'Stopped')}
               </Text>
             </View>
           </View>
-          <View style={styles.quickPnl}>
-            <Text style={styles.quickPnlLabel}>{t('累计收益', 'Total P&L')}</Text>
-            <Text style={[
-              styles.quickPnlValue,
-              { color: isProfitable ? Colors.dark.profit : Colors.dark.loss }
-            ]}>
-              {isProfitable ? '+' : ''}{totalProfitPct.toFixed(1)}%
+          <View style={styles.statusProfitBox}>
+            <Text style={[styles.cardLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+              {t('累计收益', 'Total P&L')}
+            </Text>
+            <Text
+              style={[
+                styles.statusProfit,
+                { color: isProfitable ? colors.profit : colors.loss, fontSize: fs('xl') },
+              ]}
+            >
+              {isProfitable ? '+' : ''}
+              {totalProfitPct.toFixed(1)}%
             </Text>
           </View>
         </View>
 
-        {/* 迷你柱状图 - 最近 7 天日利润 */}
-        <View style={styles.miniChart}>
-          {last7Days.map((day, index) => {
-            const isPositive = day.abs_profit >= 0;
-            const barHeight = Math.max((Math.abs(day.abs_profit) / maxAbsProfit) * 60, 4);
-            return (
-              <View key={index} style={styles.barContainer}>
-                <View
-                  style={[
-                    styles.bar,
-                    {
-                      height: barHeight,
-                      backgroundColor: isPositive
-                        ? Colors.dark.primary
-                        : `${Colors.dark.primary}66`,
-                    },
-                  ]}
-                />
-              </View>
-            );
-          })}
-          {/* 如果数据不满 7 天，用占位补齐 */}
-          {Array.from({ length: Math.max(0, 7 - last7Days.length) }).map((_, i) => (
-            <View key={`empty-${i}`} style={styles.barContainer}>
-              <View style={[styles.bar, { height: 4, backgroundColor: Colors.dark.surfaceHighlight }]} />
-            </View>
-          ))}
+        <View style={styles.controlRow}>
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder },
+              botState?.state === 'running' && { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+            ]}
+            onPress={handleStartBot}
+            disabled={isStartingBot || isStoppingBot || botState?.state === 'running'}
+          >
+            {isStartingBot ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <Ionicons
+                name="play"
+                size={18}
+                color={botState?.state === 'running' ? colors.primary : colors.textSecondary}
+              />
+            )}
+            <Text
+              style={[
+                styles.controlButtonText,
+                {
+                  color: botState?.state === 'running' ? colors.primary : colors.textSecondary,
+                  fontSize: fs('xs'),
+                },
+              ]}
+            >
+              {isStartingBot ? t('启动中...', 'Starting...') : t('启动', 'Start')}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder },
+              botState?.state !== 'running' && { opacity: 0.6 },
+            ]}
+            onPress={handleStopBot}
+            disabled={isStartingBot || isStoppingBot || botState?.state !== 'running'}
+          >
+            {isStoppingBot ? (
+              <ActivityIndicator color={colors.loss} size="small" />
+            ) : (
+              <Ionicons name="stop" size={18} color={colors.loss} />
+            )}
+            <Text style={[styles.controlButtonText, { color: colors.loss, fontSize: fs('xs') }]}>
+              {isStoppingBot ? t('停止中...', 'Stopping...') : t('停止', 'Stop')}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.controlButton, { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder }]}
+            onPress={() => refreshAll()}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color={colors.textSecondary} size="small" />
+            ) : (
+              <Ionicons name="refresh" size={18} color={colors.textSecondary} />
+            )}
+            <Text style={[styles.controlButtonText, { color: colors.textSecondary, fontSize: fs('xs') }]}>
+              {isLoading ? t('刷新中...', 'Refreshing...') : t('刷新', 'Refresh')}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* === 当前策略信息 === */}
-      <View style={styles.strategyCard}>
-        <View style={styles.strategyHeader}>
-          <Ionicons name="layers-outline" size={16} color={Colors.dark.primary} />
-          <Text style={styles.strategyTitle}>{t('当前策略信息', 'Current Strategy')}</Text>
-        </View>
-        <View style={styles.strategyGrid}>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('策略名称', 'Strategy')}</Text>
-            <Text style={styles.strategyValue}>{botState?.strategy || '-'}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('交易周期', 'Timeframe')}</Text>
-            <Text style={styles.strategyValue}>{botState?.timeframe || '-'}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('交易所', 'Exchange')}</Text>
-            <Text style={styles.strategyValue}>{botState?.exchange || '-'}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('运行模式', 'Runmode')}</Text>
-            <Text style={styles.strategyValue}>{botState?.runmode || botState?.trading_mode || '-'}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('计价币种', 'Stake Currency')}</Text>
-            <Text style={styles.strategyValue}>{botState?.stake_currency || '-'}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('最大持仓', 'Max Open Trades')}</Text>
-            <Text style={styles.strategyValue}>
-              {typeof botState?.max_open_trades === 'number' ? String(botState.max_open_trades) : '-'}
-            </Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('止损阈值', 'Stoploss')}</Text>
-            <Text style={styles.strategyValue}>{formatConfigPercent(botState?.stoploss)}</Text>
-          </View>
-          <View style={styles.strategyItem}>
-            <Text style={styles.strategyLabel}>{t('移动止损', 'Trailing Stop')}</Text>
-            <Text style={styles.strategyValue}>
-              {botState?.trailing_stop
-                ? `${t('开启', 'On')} (${formatConfigPercent(botState.trailing_stop_positive)})`
-                : t('关闭', 'Off')}
-            </Text>
-          </View>
-          <View style={styles.strategyItemFull}>
-            <Text style={styles.strategyLabel}>{t('ROI 目标', 'ROI Target')}</Text>
-            <Text style={styles.strategyValue}>{roiSummary}</Text>
-          </View>
-          <View style={styles.strategyItemFull}>
-            <Text style={styles.strategyLabel}>{t('实盘/模拟', 'Mode')}</Text>
-            <Text style={styles.strategyValue}>
-              {typeof botState?.dry_run === 'boolean' ? (botState.dry_run ? t('模拟交易', 'Dry Run') : t('实盘交易', 'Live')) : '-'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* === 快捷控制按钮 === */}
-      <View style={styles.controlRow}>
-        <TouchableOpacity
-          style={[
-            styles.controlBtn,
-            botState?.state === 'running' && styles.controlBtnActive,
-            (isStartingBot || isStoppingBot || botState?.state === 'running') && styles.controlBtnDisabled,
-          ]}
-          onPress={handleStartBot}
-          disabled={isStartingBot || isStoppingBot || botState?.state === 'running'}
-          activeOpacity={0.7}
-        >
-          {isStartingBot ? (
-            <ActivityIndicator size="small" color={Colors.dark.primary} />
-          ) : (
-            <Ionicons
-              name="play"
-              size={18}
-              color={botState?.state === 'running' ? Colors.dark.primary : Colors.dark.textSecondary}
-            />
-          )}
-          <Text style={[
-            styles.controlBtnText,
-            botState?.state === 'running' && styles.controlBtnTextActive,
-          ]}>
-            {isStartingBot ? t('启动中...', 'Starting...') : t('启动', 'Start')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.controlBtn,
-            botState?.state === 'stopped' && styles.controlBtnDanger,
-            (isStartingBot || isStoppingBot || botState?.state !== 'running') && styles.controlBtnDisabled,
-          ]}
-          onPress={handleStopBot}
-          disabled={isStartingBot || isStoppingBot || botState?.state !== 'running'}
-          activeOpacity={0.7}
-        >
-          {isStoppingBot ? (
-            <ActivityIndicator size="small" color={Colors.dark.loss} />
-          ) : (
-            <Ionicons
-              name="stop"
-              size={18}
-              color={botState?.state === 'stopped' ? Colors.dark.loss : Colors.dark.textSecondary}
-            />
-          )}
-          <Text style={[
-            styles.controlBtnText,
-            botState?.state === 'stopped' && { color: Colors.dark.loss },
-          ]}>
-            {isStoppingBot ? t('停止中...', 'Stopping...') : t('停止', 'Stop')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.controlBtn, isLoading && styles.controlBtnDisabled]}
-          onPress={() => refreshAll()}
-          disabled={isLoading}
-          activeOpacity={0.7}
-        >
-          {isLoading ? (
-            <ActivityIndicator size="small" color={Colors.dark.textSecondary} />
-          ) : (
-            <Ionicons name="refresh" size={18} color={Colors.dark.textSecondary} />
-          )}
-          <Text style={styles.controlBtnText}>{isLoading ? t('刷新中...', 'Refreshing...') : t('刷新', 'Refresh')}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* === 交易统计 === */}
-      <View style={styles.statsRow}>
+      <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>{profit?.trade_count ?? 0}</Text>
-          <Text style={styles.statLabel}>{t('总交易', 'Trades')}</Text>
+          <Text style={[styles.statValue, { color: colors.text, fontSize: fs('xl') }]}>{profit?.trade_count ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('总交易', 'Trades')}</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: Colors.dark.profit }]}>
-            {profit?.winning_trades ?? 0}
-          </Text>
-          <Text style={styles.statLabel}>{t('盈利', 'Wins')}</Text>
+          <Text style={[styles.statValue, { color: colors.profit, fontSize: fs('xl') }]}>{profit?.winning_trades ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('盈利', 'Wins')}</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: Colors.dark.loss }]}>
-            {profit?.losing_trades ?? 0}
-          </Text>
-          <Text style={styles.statLabel}>{t('亏损', 'Losses')}</Text>
+          <Text style={[styles.statValue, { color: colors.loss, fontSize: fs('xl') }]}>{profit?.losing_trades ?? 0}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('亏损', 'Losses')}</Text>
         </View>
-        <View style={styles.statDivider} />
+        <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
-          <Text style={styles.statValue}>
+          <Text style={[styles.statValue, { color: colors.text, fontSize: fs('xl') }]}>
             {profit?.profit_factor?.toFixed(2) ?? '-'}
           </Text>
-          <Text style={styles.statLabel}>{t('盈亏比', 'Profit Factor')}</Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('盈亏比', 'Profit Factor')}
+          </Text>
         </View>
       </View>
 
-      {/* === Active Pairs 列表 === */}
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>
+        <Text style={[styles.sectionTitle, { color: colors.text, fontSize: fs('lg') }]}>
           {t('活跃交易对', 'Active Pairs')}
         </Text>
-        <Pressable
-          onPress={() => router.push('/(tabs)/trades')}
-          style={({ pressed }) => pressed && styles.sectionLinkPressed}
-        >
-          <Text style={styles.sectionLink}>{t('查看全部', 'View All')}</Text>
+        <Pressable onPress={() => router.push('/(tabs)/trades')} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+          <Text style={[styles.sectionLink, { color: colors.primary, fontSize: fs('sm') }]}>
+            {t('查看全部', 'View All')}
+          </Text>
         </Pressable>
       </View>
 
       {openTrades.length === 0 ? (
-        <View style={styles.emptyTrades}>
-          <Ionicons name="analytics-outline" size={32} color={Colors.dark.textMuted} />
-          <Text style={styles.emptyTradesText}>{t('暂无活跃交易', 'No open trades')}</Text>
+        <View style={[styles.emptyTrades, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+          <Ionicons name="analytics-outline" size={32} color={colors.textMuted} />
+          <Text style={[styles.emptyTradesText, { color: colors.textMuted, fontSize: fs('md') }]}>
+            {t('暂无活跃交易', 'No open trades')}
+          </Text>
         </View>
       ) : (
         openTrades.slice(0, 5).map((trade) => {
           const isProfit = trade.profit_pct >= 0;
-          const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+          const profitColor = isProfit ? colors.profit : colors.loss;
           const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
-          // 取交易对首字母
           const pairName = trade.pair.replace(':', '/').replace('/USDT', '');
           const initial = pairName.charAt(0).toUpperCase();
 
@@ -435,98 +318,86 @@ export default function DashboardScreen() {
               key={trade.trade_id}
               style={({ pressed }) => [
                 styles.pairCard,
-                pressed && styles.pairCardPressed,
+                {
+                  backgroundColor: pressed ? colors.surfaceLight : colors.surface,
+                  borderColor: pressed ? colors.primary : colors.surfaceBorder,
+                },
               ]}
               onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
             >
-              {/* 币种图标 - 使用首字母 */}
-              <View style={[styles.pairIcon, { borderColor: profitColor }]}>
-                <Text style={[styles.pairIconText, { color: profitColor }]}>
-                  {initial}
-                </Text>
+              <View style={[styles.pairIcon, { borderColor: profitColor, backgroundColor: colors.surfaceLight }]}>
+                <Text style={[styles.pairIconText, { color: profitColor, fontSize: fs('md') }]}>{initial}</Text>
               </View>
 
-              {/* 交易对名称和方向 */}
               <View style={styles.pairInfo}>
-                <Text style={styles.pairName}>
+                <Text style={[styles.pairName, { color: colors.text, fontSize: fs('md') }]}>
                   {trade.pair.replace(':', ' / ')}
                 </Text>
-                <Text style={styles.pairMeta}>
-                  {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')} · {trade.leverage > 1 ? `${trade.leverage}x ${t('杠杆', 'Leverage')}` : `1.0x ${t('杠杆', 'Leverage')}`}
+                <Text style={[styles.pairMeta, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                  {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')} · {trade.leverage}x{' '}
+                  {t('杠杆', 'Leverage')}
                 </Text>
               </View>
 
-              {/* 盈亏 */}
               <View style={styles.pairProfit}>
-                <Text style={[styles.pairProfitPct, { color: profitColor }]}>
-                  {isProfit ? '+' : ''}{profitPct.toFixed(2)}%
+                <Text style={[styles.pairProfitPct, { color: profitColor, fontSize: fs('md') }]}>
+                  {isProfit ? '+' : ''}
+                  {profitPct.toFixed(2)}%
                 </Text>
-                <Text style={[styles.pairProfitAbs, { color: profitColor }]}>
-                  {isProfit ? '+' : ''}{trade.profit_abs.toFixed(2)}
+                <Text style={[styles.pairProfitAbs, { color: profitColor, fontSize: fs('xs') }]}>
+                  {isProfit ? '+' : ''}
+                  {trade.profit_abs.toFixed(2)}
                 </Text>
               </View>
             </Pressable>
           );
         })
       )}
-
-      {/* 底部留白 */}
-      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
-// === 样式表 - 匹配 Stitch 设计 ===
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
   },
   content: {
     padding: Spacing.lg,
+    paddingBottom: 40,
   },
-
-  // 错误提示
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 170, 0, 0.1)',
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
     borderWidth: 1,
-    borderColor: 'rgba(255, 170, 0, 0.2)',
   },
   errorText: {
-    color: Colors.dark.warning,
-    fontSize: FontSize.sm,
     flex: 1,
   },
-
-  // === 总资产区域 ===
-  portfolioSection: {
+  heroSection: {
     marginBottom: Spacing.xl,
     paddingTop: Spacing.sm,
   },
-  portfolioLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
+  heroLabel: {
     fontWeight: '600',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     marginBottom: Spacing.xs,
   },
-  portfolioValue: {
-    color: Colors.dark.text,
-    fontSize: FontSize.hero,
+  heroValue: {
     fontWeight: '700',
     fontFamily: 'SpaceMono',
     letterSpacing: -0.5,
   },
-  portfolioCurrency: {
-    fontSize: FontSize.lg,
-    color: Colors.dark.textSecondary,
+  heroCurrency: {
     fontWeight: '400',
   },
   pnlRow: {
@@ -536,39 +407,30 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   pnlText: {
-    fontSize: FontSize.sm,
     fontWeight: '600',
     fontFamily: 'SpaceMono',
   },
   pnlLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.sm,
     marginLeft: Spacing.xs,
   },
-
-  // === Bot Status 卡片 ===
-  botStatusCard: {
-    backgroundColor: Colors.dark.surface,
+  statusCard: {
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.xl,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
   },
-  botStatusHeader: {
+  statusHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: Spacing.lg,
   },
-  botStatusLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
+  cardLabel: {
     fontWeight: '600',
     letterSpacing: 0.5,
     marginBottom: Spacing.xs,
   },
-  botStatusRow: {
+  statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
@@ -578,137 +440,38 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  botStatusText: {
-    fontSize: FontSize.md,
+  statusText: {
     fontWeight: '700',
   },
-  quickPnl: {
+  statusProfitBox: {
     alignItems: 'flex-end',
   },
-  quickPnlLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    marginBottom: Spacing.xs,
-  },
-  quickPnlValue: {
-    fontSize: FontSize.xl,
+  statusProfit: {
     fontWeight: '700',
     fontFamily: 'SpaceMono',
   },
-
-  // === 当前策略信息 ===
-  strategyCard: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-  },
-  strategyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.md,
-  },
-  strategyTitle: {
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
-    fontWeight: '700',
-  },
-  strategyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    rowGap: Spacing.md,
-  },
-  strategyItem: {
-    width: '50%',
-    paddingRight: Spacing.md,
-  },
-  strategyItemFull: {
-    width: '100%',
-  },
-  strategyLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-    marginBottom: 2,
-  },
-  strategyValue: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    fontFamily: 'SpaceMono',
-  },
-
-  // === 迷你柱状图 ===
-  miniChart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: 60,
-    gap: 6,
-  },
-  barContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    height: '100%',
-  },
-  bar: {
-    width: '80%',
-    borderRadius: 3,
-    minHeight: 4,
-  },
-
-  // === 快捷控制按钮 ===
   controlRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    marginBottom: Spacing.xl,
   },
-  controlBtn: {
+  controlButton: {
     flex: 1,
-    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.dark.surface,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     gap: Spacing.xs,
   },
-  controlBtnActive: {
-    borderColor: Colors.dark.primary,
-    backgroundColor: Colors.dark.primaryBg,
-  },
-  controlBtnDanger: {
-    borderColor: Colors.dark.loss,
-    backgroundColor: Colors.dark.lossBg,
-  },
-  controlBtnDisabled: {
-    opacity: 0.6,
-  },
-  controlBtnText: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.xs,
+  controlButtonText: {
     fontWeight: '600',
   },
-  controlBtnTextActive: {
-    color: Colors.dark.primary,
-  },
-
-  // === 统计行 ===
-  statsRow: {
+  statsCard: {
     flexDirection: 'row',
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     marginBottom: Spacing.xl,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     alignItems: 'center',
   },
   statItem: {
@@ -716,23 +479,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    color: Colors.dark.text,
-    fontSize: FontSize.xl,
     fontWeight: '700',
     fontFamily: 'SpaceMono',
   },
   statLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
     marginTop: 2,
   },
   statDivider: {
     width: 0.5,
     height: 30,
-    backgroundColor: Colors.dark.surfaceBorder,
   },
-
-  // === Section Header ===
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -740,121 +496,75 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   sectionTitle: {
-    color: Colors.dark.text,
-    fontSize: FontSize.lg,
     fontWeight: '700',
   },
   sectionLink: {
-    color: Colors.dark.primary,
-    fontSize: FontSize.sm,
     fontWeight: '500',
   },
-  sectionLinkPressed: {
-    opacity: 0.65,
+  emptyTrades: {
+    borderRadius: BorderRadius.md,
+    padding: Spacing.xxl,
+    alignItems: 'center',
+    borderWidth: 1,
+    gap: Spacing.sm,
   },
-
-  // === Active Pairs 卡片 ===
+  emptyTradesText: {},
   pairCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     gap: Spacing.md,
-  },
-  pairCardPressed: {
-    backgroundColor: Colors.dark.surfaceLight,
-    borderColor: Colors.dark.primary,
   },
   pairIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.dark.surfaceLight,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pairIconText: {
-    fontSize: FontSize.md,
     fontWeight: '700',
   },
   pairInfo: {
     flex: 1,
   },
   pairName: {
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
     fontWeight: '600',
     marginBottom: 2,
   },
-  pairMeta: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-  },
+  pairMeta: {},
   pairProfit: {
     alignItems: 'flex-end',
   },
   pairProfitPct: {
-    fontSize: FontSize.md,
     fontWeight: '700',
     fontFamily: 'SpaceMono',
   },
   pairProfitAbs: {
-    fontSize: FontSize.xs,
     fontFamily: 'SpaceMono',
     marginTop: 2,
-  },
-
-  // === 空状态 ===
-  emptyTrades: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.xxl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    gap: Spacing.sm,
-  },
-  emptyTradesText: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.md,
-  },
-
-  // === 未连接空状态 ===
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.xl,
   },
   emptyIconWrap: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.dark.primaryBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.md,
   },
   emptyTitle: {
-    color: Colors.dark.text,
-    fontSize: FontSize.xxl,
     fontWeight: '700',
   },
   emptySubtitle: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.md,
     textAlign: 'center',
   },
   connectButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.dark.primary,
     paddingHorizontal: Spacing.xxl,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
@@ -863,7 +573,6 @@ const styles = StyleSheet.create({
   },
   connectButtonText: {
     color: '#FFF',
-    fontSize: FontSize.lg,
     fontWeight: '600',
   },
 });

@@ -1,144 +1,171 @@
-import React, { useEffect, useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    ActivityIndicator,
-} from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 
-const FONT_SCALE_KEY = 'ft_app_font_scale';
+import {
+  BorderRadius,
+  FontScale,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
-type FontScale = 'small' | 'normal' | 'large';
-
-const fontScaleLabel: Record<FontScale, string> = {
-    small: '偏小',
-    normal: '标准',
-    large: '偏大',
-};
+const options: FontScale[] = ['small', 'normal', 'large'];
 
 export default function FontSettingsScreen() {
-    const [fontScale, setFontScale] = useState<FontScale>('normal');
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
+  const language = useI18nStore((s) => s.language);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const isReady = useAppearanceStore((s) => s.isReady);
+  const setFontScale = useAppearanceStore((s) => s.setFontScale);
+  const colors = getThemeColors(themeMode);
+  const t = (zh: string, en: string) => (language === 'en' ? en : zh);
 
-    useEffect(() => {
-        const load = async () => {
-            try {
-                const saved = await SecureStore.getItemAsync(FONT_SCALE_KEY);
-                if (saved === 'small' || saved === 'normal' || saved === 'large') {
-                    setFontScale(saved);
-                }
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        load();
-    }, []);
+  const [isSaving, setIsSaving] = React.useState(false);
 
-    const saveScale = async (next: FontScale) => {
-        if (isSaving || next === fontScale) return;
-        setIsSaving(true);
-        try {
-            await SecureStore.setItemAsync(FONT_SCALE_KEY, next);
-            setFontScale(next);
-        } finally {
-            setIsSaving(false);
-        }
-    };
+  const labels: Record<FontScale, { title: string; subtitle: string }> = {
+    small: {
+      title: t('紧凑', 'Compact'),
+      subtitle: t('一屏显示更多信息。', 'Fits more data on screen.'),
+    },
+    normal: {
+      title: t('标准', 'Standard'),
+      subtitle: t('适合大多数使用场景。', 'Balanced for everyday use.'),
+    },
+    large: {
+      title: t('舒适', 'Comfort'),
+      subtitle: t('提升阅读性和点击舒适度。', 'Larger text for readability and taps.'),
+    },
+  };
 
-    if (isLoading) {
-        return (
-            <View style={styles.loadingWrap}>
-                <ActivityIndicator color={Colors.dark.primary} size="small" />
-                <Text style={styles.loadingText}>读取字体设置中...</Text>
-            </View>
-        );
+  const saveScale = async (next: FontScale) => {
+    if (isSaving || next === fontScale) return;
+    setIsSaving(true);
+    try {
+      await setFontScale(next);
+    } finally {
+      setIsSaving(false);
     }
+  };
 
+  if (!isReady) {
     return (
-        <View style={styles.container}>
-            <View style={styles.group}>
-                {(['small', 'normal', 'large'] as FontScale[]).map((item, index) => (
-                    <View key={item}>
-                        <TouchableOpacity
-                            style={styles.row}
-                            onPress={() => saveScale(item)}
-                            activeOpacity={0.7}
-                            disabled={isSaving}
-                        >
-                            <Ionicons name="text-outline" size={18} color={Colors.dark.primary} />
-                            <View style={styles.info}>
-                                <Text style={styles.title}>{fontScaleLabel[item]}</Text>
-                                <Text style={styles.subtitle}>预设字号档位</Text>
-                            </View>
-                            {fontScale === item ? <Ionicons name="checkmark-circle" size={18} color={Colors.dark.primary} /> : null}
-                        </TouchableOpacity>
-                        {index < 2 ? <View style={styles.divider} /> : null}
-                    </View>
-                ))}
-            </View>
-
-            <Text style={styles.note}>说明：字体偏好已保存，当前版本会在后续页面逐步应用该设置。</Text>
-        </View>
+      <View style={[styles.loadingWrap, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} size="small" />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+          {t('读取字体设置中...', 'Loading font settings...')}
+        </Text>
+      </View>
     );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.previewCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <Text style={[styles.previewLabel, { color: colors.textMuted, fontSize: getScaledFontSize('xs', fontScale) }]}>
+          {t('字号预览', 'Scale Preview')}
+        </Text>
+        <Text style={[styles.previewHero, { color: colors.text, fontSize: getScaledFontSize('hero', fontScale) }]}>
+          24.68%
+        </Text>
+        <Text style={[styles.previewText, { color: colors.textSecondary, fontSize: getScaledFontSize('md', fontScale) }]}>
+          {t('主题、设置和部分列表会立即使用新的字号。', 'Settings, chrome, and key lists update immediately.')}
+        </Text>
+      </View>
+
+      <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        {options.map((item, index) => {
+          const selected = fontScale === item;
+          return (
+            <React.Fragment key={item}>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => saveScale(item)}
+                activeOpacity={0.75}
+                disabled={isSaving}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: colors.primaryBg }]}>
+                  <Ionicons name="text-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={styles.info}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: getScaledFontSize('md', item) }}>
+                    {labels[item].title}
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, marginTop: 2, fontSize: getScaledFontSize('xs', item) }}>
+                    {labels[item].subtitle}
+                  </Text>
+                </View>
+                {selected ? <Ionicons name="checkmark-circle" size={18} color={colors.primary} /> : null}
+              </TouchableOpacity>
+              {index < options.length - 1 ? (
+                <View style={[styles.divider, { backgroundColor: colors.surfaceBorder }]} />
+              ) : null}
+            </React.Fragment>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Colors.dark.background,
-        padding: Spacing.lg,
-    },
-    loadingWrap: {
-        flex: 1,
-        backgroundColor: Colors.dark.background,
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: Spacing.sm,
-    },
-    loadingText: {
-        color: Colors.dark.textSecondary,
-        fontSize: FontSize.sm,
-    },
-    group: {
-        backgroundColor: Colors.dark.surface,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: Colors.dark.surfaceBorder,
-        overflow: 'hidden',
-    },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: Spacing.lg,
-        gap: Spacing.md,
-    },
-    info: {
-        flex: 1,
-    },
-    title: {
-        color: Colors.dark.text,
-        fontSize: FontSize.md,
-        fontWeight: '600',
-    },
-    subtitle: {
-        color: Colors.dark.textSecondary,
-        fontSize: FontSize.xs,
-        marginTop: 2,
-    },
-    divider: {
-        height: 0.5,
-        backgroundColor: Colors.dark.surfaceBorder,
-        marginLeft: Spacing.lg + 18 + Spacing.md,
-    },
-    note: {
-        color: Colors.dark.textMuted,
-        fontSize: FontSize.sm,
-        lineHeight: 20,
-        marginTop: Spacing.md,
-    },
+  container: {
+    flex: 1,
+    padding: Spacing.lg,
+    gap: Spacing.lg,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  loadingText: {
+    fontSize: FontSize.sm,
+  },
+  previewCard: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  previewLabel: {
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  previewHero: {
+    fontWeight: '800',
+    lineHeight: 42,
+  },
+  previewText: {
+    lineHeight: 22,
+  },
+  group: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.xl,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.lg,
+  },
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  info: {
+    flex: 1,
+  },
+  divider: {
+    height: 1,
+    marginLeft: 50,
+  },
 });

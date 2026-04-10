@@ -1,149 +1,199 @@
-import React, { useEffect, useState } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    ActivityIndicator,
-} from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, FontSize, Spacing, BorderRadius } from '@/constants/Colors';
 
-const THEME_KEY = 'ft_app_theme_preference';
-
-type ThemeMode = 'dark' | 'amoled';
+import {
+  BorderRadius,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
+import { useI18nStore } from '@/src/stores/useI18nStore';
 
 export default function ThemeSettingsScreen() {
-    const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
+  const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const isReady = useAppearanceStore((s) => s.isReady);
+  const setThemeMode = useAppearanceStore((s) => s.setThemeMode);
+  const t = (zh: string, en: string) => (language === 'en' ? en : zh);
+  const colors = getThemeColors(themeMode);
 
-    useEffect(() => {
-        const load = async () => {
-            try {
-                const saved = await SecureStore.getItemAsync(THEME_KEY);
-                if (saved === 'dark' || saved === 'amoled') {
-                    setThemeMode(saved);
-                }
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        load();
-    }, []);
+  const [isSaving, setIsSaving] = React.useState(false);
 
-    const applyTheme = async (mode: ThemeMode) => {
-        if (isSaving || mode === themeMode) return;
-        setIsSaving(true);
-        try {
-            await SecureStore.setItemAsync(THEME_KEY, mode);
-            setThemeMode(mode);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    if (isLoading) {
-        return (
-            <View style={styles.loadingWrap}>
-                <ActivityIndicator color={Colors.dark.primary} size="small" />
-                <Text style={styles.loadingText}>读取主题设置中...</Text>
-            </View>
-        );
+  const applyTheme = async (mode: 'dark' | 'amoled') => {
+    if (isSaving || mode === themeMode) return;
+    setIsSaving(true);
+    try {
+      await setThemeMode(mode);
+    } finally {
+      setIsSaving(false);
     }
+  };
 
+  if (!isReady) {
     return (
-        <View style={styles.container}>
-            <View style={styles.group}>
-                <TouchableOpacity
-                    style={styles.row}
-                    onPress={() => applyTheme('dark')}
-                    activeOpacity={0.7}
-                    disabled={isSaving}
-                >
-                    <Ionicons name="moon-outline" size={18} color={Colors.dark.primary} />
-                    <View style={styles.info}>
-                        <Text style={styles.title}>深色主题（推荐）</Text>
-                        <Text style={styles.subtitle}>当前应用默认主题</Text>
-                    </View>
-                    {themeMode === 'dark' ? <Ionicons name="checkmark-circle" size={18} color={Colors.dark.primary} /> : null}
-                </TouchableOpacity>
-
-                <View style={styles.divider} />
-
-                <TouchableOpacity
-                    style={styles.row}
-                    onPress={() => applyTheme('amoled')}
-                    activeOpacity={0.7}
-                    disabled={isSaving}
-                >
-                    <Ionicons name="contrast-outline" size={18} color={Colors.dark.primary} />
-                    <View style={styles.info}>
-                        <Text style={styles.title}>纯黑主题</Text>
-                        <Text style={styles.subtitle}>省电且更高对比度（将用于后续版本）</Text>
-                    </View>
-                    {themeMode === 'amoled' ? <Ionicons name="checkmark-circle" size={18} color={Colors.dark.primary} /> : null}
-                </TouchableOpacity>
-            </View>
-
-            <Text style={styles.note}>说明：主题偏好已保存，当前版本主界面保持深色样式，后续版本会全面应用该设置。</Text>
-        </View>
+      <View style={[styles.loadingWrap, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} size="small" />
+        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+          {t('读取主题设置中...', 'Loading theme settings...')}
+        </Text>
+      </View>
     );
+  }
+
+  const previewModes: Array<{ key: 'dark' | 'amoled'; icon: keyof typeof Ionicons.glyphMap; title: string; subtitle: string }> = [
+    {
+      key: 'dark',
+      icon: 'moon-outline',
+      title: t('深色主题', 'Deep Dark'),
+      subtitle: t('更柔和的深蓝黑界面，适合长时间查看。', 'A softer navy-black palette for long sessions.'),
+    },
+    {
+      key: 'amoled',
+      icon: 'contrast-outline',
+      title: t('纯黑主题', 'AMOLED Black'),
+      subtitle: t('更高对比度，更纯的黑色背景。', 'Higher contrast with a true-black background.'),
+    },
+  ];
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.previewCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <Text style={[styles.previewLabel, { color: colors.textMuted, fontSize: getScaledFontSize('xs', fontScale) }]}>
+          {t('实时预览', 'Live Preview')}
+        </Text>
+        <Text style={[styles.previewTitle, { color: colors.text, fontSize: getScaledFontSize('xl', fontScale) }]}>
+          {t('主题会立即应用到导航和设置页', 'Theme updates apply immediately')}
+        </Text>
+        <View style={styles.previewMetrics}>
+          <View style={[styles.metricPill, { backgroundColor: colors.primaryBg }]}>
+            <Text style={[styles.metricText, { color: colors.primary, fontSize: getScaledFontSize('xs', fontScale) }]}>
+              {themeMode === 'amoled' ? 'AMOLED' : 'DARK'}
+            </Text>
+          </View>
+          <View style={[styles.metricPill, { backgroundColor: colors.profitBg }]}>
+            <Text style={[styles.metricText, { color: colors.profit, fontSize: getScaledFontSize('xs', fontScale) }]}>
+              +2.84%
+            </Text>
+          </View>
+          <View style={[styles.metricPill, { backgroundColor: colors.lossBg }]}>
+            <Text style={[styles.metricText, { color: colors.loss, fontSize: getScaledFontSize('xs', fontScale) }]}>
+              -1.12%
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={[styles.group, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        {previewModes.map((item, index) => {
+          const selected = themeMode === item.key;
+          const previewColors = getThemeColors(item.key);
+          return (
+            <React.Fragment key={item.key}>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => applyTheme(item.key)}
+                activeOpacity={0.75}
+                disabled={isSaving}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: previewColors.primaryBg }]}>
+                  <Ionicons name={item.icon} size={18} color={previewColors.primary} />
+                </View>
+                <View style={styles.info}>
+                  <Text style={[styles.title, { color: colors.text, fontSize: getScaledFontSize('md', fontScale) }]}>
+                    {item.title}
+                  </Text>
+                  <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: getScaledFontSize('xs', fontScale) }]}>
+                    {item.subtitle}
+                  </Text>
+                </View>
+                {selected ? <Ionicons name="checkmark-circle" size={18} color={colors.primary} /> : null}
+              </TouchableOpacity>
+              {index < previewModes.length - 1 ? (
+                <View style={[styles.divider, { backgroundColor: colors.surfaceBorder }]} />
+              ) : null}
+            </React.Fragment>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Colors.dark.background,
-        padding: Spacing.lg,
-    },
-    loadingWrap: {
-        flex: 1,
-        backgroundColor: Colors.dark.background,
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: Spacing.sm,
-    },
-    loadingText: {
-        color: Colors.dark.textSecondary,
-        fontSize: FontSize.sm,
-    },
-    group: {
-        backgroundColor: Colors.dark.surface,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: Colors.dark.surfaceBorder,
-        overflow: 'hidden',
-    },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: Spacing.lg,
-        gap: Spacing.md,
-    },
-    info: {
-        flex: 1,
-    },
-    title: {
-        color: Colors.dark.text,
-        fontSize: FontSize.md,
-        fontWeight: '600',
-    },
-    subtitle: {
-        color: Colors.dark.textSecondary,
-        fontSize: FontSize.xs,
-        marginTop: 2,
-    },
-    divider: {
-        height: 0.5,
-        backgroundColor: Colors.dark.surfaceBorder,
-        marginLeft: Spacing.lg + 18 + Spacing.md,
-    },
-    note: {
-        color: Colors.dark.textMuted,
-        fontSize: FontSize.sm,
-        lineHeight: 20,
-        marginTop: Spacing.md,
-    },
+  container: {
+    flex: 1,
+    padding: Spacing.lg,
+    gap: Spacing.lg,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  loadingText: {
+    fontSize: FontSize.sm,
+  },
+  previewCard: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  previewLabel: {
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  previewTitle: {
+    fontWeight: '800',
+  },
+  previewMetrics: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  metricPill: {
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+  },
+  metricText: {
+    fontWeight: '700',
+  },
+  group: {
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.lg,
+  },
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  info: {
+    flex: 1,
+  },
+  title: {
+    fontWeight: '700',
+  },
+  subtitle: {
+    marginTop: 2,
+    lineHeight: 18,
+  },
+  divider: {
+    height: 1,
+    marginLeft: 50,
+  },
 });

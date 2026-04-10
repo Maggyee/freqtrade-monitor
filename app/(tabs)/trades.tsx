@@ -14,9 +14,16 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import {
+  BorderRadius,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 type TabType = 'open' | 'history';
@@ -27,6 +34,10 @@ const fallbackPairs = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT'];
 export default function TradesScreen() {
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
+  const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const {
     isConnected,
@@ -129,7 +140,11 @@ export default function TradesScreen() {
         const latestError = useBotStore.getState().error;
         Alert.alert(
           t('开仓失败', 'Entry failed'),
-          latestError || t('请检查该币对是否已有持仓，或查看后端返回原因。', 'Check whether this pair already has an open position, or review the backend error.'),
+          latestError ||
+            t(
+              '请检查该币对是否已有持仓，或查看后端返回原因。',
+              'Check whether this pair already has an open position, or review the backend error.',
+            ),
         );
         return;
       }
@@ -173,12 +188,12 @@ export default function TradesScreen() {
 
   if (!isConnected) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.emptyCenter}>
-          <View style={styles.emptyIconWrap}>
-            <Ionicons name="swap-horizontal" size={36} color={Colors.dark.primary} />
+          <View style={[styles.emptyIconWrap, { backgroundColor: colors.primaryBg }]}>
+            <Ionicons name="swap-horizontal" size={36} color={colors.primary} />
           </View>
-          <Text style={styles.emptyText}>
+          <Text style={[styles.emptyText, { color: colors.textSecondary, fontSize: fs('lg') }]}>
             {hasSavedConnection ? t('正在恢复连接', 'Restoring connection') : t('请先连接 Bot', 'Connect bot first')}
           </Text>
         </View>
@@ -189,37 +204,57 @@ export default function TradesScreen() {
   return (
     <>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: colors.background }]}
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
             onRefresh={onRefresh}
-            tintColor={Colors.dark.primary}
-            colors={[Colors.dark.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
-        <View style={styles.segmentContainer}>
+        <View style={[styles.segmentContainer, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
           <TouchableOpacity
-            style={[styles.segmentBtn, activeTab === 'open' && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, activeTab === 'open' && { backgroundColor: colors.surfaceLight }]}
             onPress={() => setActiveTab('open')}
           >
-            <Text style={[styles.segmentText, activeTab === 'open' && styles.segmentTextActive]}>
+            <Text
+              style={[
+                styles.segmentText,
+                { color: activeTab === 'open' ? colors.text : colors.textMuted, fontSize: fs('sm') },
+              ]}
+            >
               {t('当前持仓', 'Open Positions')}
             </Text>
-            <Text style={[styles.segmentCount, activeTab === 'open' && styles.segmentCountActive]}>
+            <Text
+              style={[
+                styles.segmentCount,
+                { color: activeTab === 'open' ? colors.primary : colors.textMuted, fontSize: fs('xs') },
+              ]}
+            >
               {openTrades.length}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.segmentBtn, activeTab === 'history' && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, activeTab === 'history' && { backgroundColor: colors.surfaceLight }]}
             onPress={() => setActiveTab('history')}
           >
-            <Text style={[styles.segmentText, activeTab === 'history' && styles.segmentTextActive]}>
+            <Text
+              style={[
+                styles.segmentText,
+                { color: activeTab === 'history' ? colors.text : colors.textMuted, fontSize: fs('sm') },
+              ]}
+            >
               {t('订单历史', 'Order History')}
             </Text>
-            <Text style={[styles.segmentCount, activeTab === 'history' && styles.segmentCountActive]}>
+            <Text
+              style={[
+                styles.segmentCount,
+                { color: activeTab === 'history' ? colors.primary : colors.textMuted, fontSize: fs('xs') },
+              ]}
+            >
               {tradeHistory.length}
             </Text>
           </TouchableOpacity>
@@ -227,33 +262,43 @@ export default function TradesScreen() {
 
         {activeTab === 'open' && (
           <>
-            <View style={styles.entryCard}>
-              <Text style={styles.entryEyebrow}>
+            <View style={[styles.entryCard, { backgroundColor: colors.surfaceHighlight, borderColor: colors.primaryDark }]}>
+              <Text style={[styles.entryEyebrow, { color: colors.primaryLight, fontSize: fs('xs') }]}>
                 {botState?.dry_run ? t('当前为模拟盘', 'Dry-run mode active') : t('当前为实盘', 'Live mode active')}
               </Text>
-              <Text style={styles.entryTitle}>{t('手动下单', 'Manual Entry')}</Text>
-              <Text style={styles.entrySubtitle}>
+              <Text style={[styles.entryTitle, { color: colors.text, fontSize: fs('xl') }]}>
+                {t('手动下单', 'Manual Entry')}
+              </Text>
+              <Text style={[styles.entrySubtitle, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                 {t(
-                  '币对会直接读取当前白名单。点击后选择方向和金额即可提交模拟单。',
+                  '币对直接读取当前白名单，选择方向和金额后即可提交模拟单。',
                   'Pairs are loaded from the current whitelist. Choose a side and amount, then submit a simulated order.',
                 )}
               </Text>
-              <TouchableOpacity style={styles.entryButton} onPress={openEntryModal}>
-                <Text style={styles.entryButtonText}>{t('选择币对下单', 'Choose Pair')}</Text>
+              <TouchableOpacity style={[styles.entryButton, { backgroundColor: colors.primary }]} onPress={openEntryModal}>
+                <Text style={[styles.entryButtonText, { fontSize: fs('sm') }]}>
+                  {t('选择币对下单', 'Choose Pair')}
+                </Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.statsRow}>
-              <View style={styles.statsCard}>
-                <Text style={styles.statsLabel}>{t('总敞口', 'Exposure')}</Text>
-                <Text style={styles.statsValue}>{totalExposure.toFixed(2)}</Text>
+              <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+                <Text style={[styles.statsLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                  {t('总敞口', 'Exposure')}
+                </Text>
+                <Text style={[styles.statsValue, { color: colors.text, fontSize: fs('lg') }]}>
+                  {totalExposure.toFixed(2)}
+                </Text>
               </View>
-              <View style={styles.statsCard}>
-                <Text style={styles.statsLabel}>{t('未实现盈亏', 'Unrealized P&L')}</Text>
+              <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+                <Text style={[styles.statsLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                  {t('未实现盈亏', 'Unrealized P&L')}
+                </Text>
                 <Text
                   style={[
                     styles.statsValue,
-                    { color: unrealizedPnl >= 0 ? Colors.dark.profit : Colors.dark.loss },
+                    { color: unrealizedPnl >= 0 ? colors.profit : colors.loss, fontSize: fs('lg') },
                   ]}
                 >
                   {unrealizedPnl >= 0 ? '+' : ''}
@@ -266,10 +311,12 @@ export default function TradesScreen() {
 
         {activeTab === 'open' ? (
           openTrades.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="analytics-outline" size={44} color={Colors.dark.textMuted} />
-              <Text style={styles.emptyCardTitle}>{t('暂无活动交易', 'No open trades')}</Text>
-              <Text style={styles.emptyCardSubtitle}>
+            <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+              <Ionicons name="analytics-outline" size={44} color={colors.textMuted} />
+              <Text style={[styles.emptyCardTitle, { color: colors.text, fontSize: fs('lg') }]}>
+                {t('暂无活动交易', 'No open trades')}
+              </Text>
+              <Text style={[styles.emptyCardSubtitle, { color: colors.textMuted, fontSize: fs('sm') }]}>
                 {t('机器人正在等待下一次入场信号。', 'The bot is waiting for the next entry signal.')}
               </Text>
             </View>
@@ -277,79 +324,88 @@ export default function TradesScreen() {
             openTrades.map((trade) => {
               const isProfit = trade.profit_pct >= 0;
               const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
-              const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+              const profitColor = isProfit ? colors.profit : colors.loss;
               const isClosing = closingTradeId === trade.trade_id;
 
               return (
-                <View key={trade.trade_id} style={styles.tradeCard}>
+                <View
+                  key={trade.trade_id}
+                  style={[styles.tradeCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}
+                >
                   <View style={styles.tradeTop}>
                     <View>
-                      <Text style={styles.tradePair}>{trade.pair.replace(':', '/')}</Text>
+                      <Text style={[styles.tradePair, { color: colors.text, fontSize: fs('md') }]}>
+                        {trade.pair.replace(':', '/')}
+                      </Text>
                       <View style={styles.tradeBadgeRow}>
                         <View
                           style={[
                             styles.badge,
                             {
-                              backgroundColor: trade.is_short
-                                ? Colors.dark.lossBg
-                                : Colors.dark.profitBg,
+                              backgroundColor: trade.is_short ? colors.lossBg : colors.profitBg,
                             },
                           ]}
                         >
                           <Text
                             style={[
                               styles.badgeText,
-                              { color: trade.is_short ? Colors.dark.loss : Colors.dark.profit },
+                              { color: trade.is_short ? colors.loss : colors.profit, fontSize: fs('xs') },
                             ]}
                           >
                             {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')}
                           </Text>
                         </View>
-                        <Text style={styles.leverageText}>{trade.leverage}x</Text>
+                        <Text style={[styles.leverageText, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                          {trade.leverage}x
+                        </Text>
                       </View>
                     </View>
                     <View style={styles.tradeProfitWrap}>
-                      <Text style={[styles.tradeProfitValue, { color: profitColor }]}>
+                      <Text style={[styles.tradeProfitValue, { color: profitColor, fontSize: fs('lg') }]}>
                         {isProfit ? '+' : ''}
                         {trade.profit_abs.toFixed(2)}
                       </Text>
-                      <Text style={[styles.tradeProfitPct, { color: profitColor }]}>
+                      <Text style={[styles.tradeProfitPct, { color: profitColor, fontSize: fs('xs') }]}>
                         {isProfit ? '+' : ''}
                         {profitPct.toFixed(2)}%
                       </Text>
                     </View>
                   </View>
 
-                  <View style={styles.metricsRow}>
-                    <Text style={styles.metricText}>
+                  <View style={[styles.metricsRow, { backgroundColor: colors.surfaceLight }]}>
+                    <Text style={[styles.metricText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                       {t('开仓价', 'Entry')}: {trade.open_rate.toFixed(2)}
                     </Text>
-                    <Text style={styles.metricText}>
+                    <Text style={[styles.metricText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                       {t('当前价', 'Current')}: {trade.current_rate.toFixed(2)}
                     </Text>
-                    <Text style={styles.metricText}>
+                    <Text style={[styles.metricText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                       {t('仓位', 'Stake')}: {trade.stake_amount.toFixed(2)}
                     </Text>
-                    <Text style={styles.metricText}>
+                    <Text style={[styles.metricText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                       {t('持仓', 'Duration')}: {formatDuration(trade.trade_duration)}
                     </Text>
                   </View>
 
                   <View style={styles.tradeMetaRow}>
-                    <Text style={styles.tradeMetaText}>{formatDate(trade.open_date)}</Text>
+                    <Text style={[styles.tradeMetaText, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                      {formatDate(trade.open_date)}
+                    </Text>
                     <View style={styles.tradeActions}>
                       <TouchableOpacity
-                        style={styles.secondaryButton}
+                        style={[styles.secondaryButton, { borderColor: colors.surfaceBorder }]}
                         onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
                       >
-                        <Text style={styles.secondaryButtonText}>{t('详情', 'Details')}</Text>
+                        <Text style={[styles.secondaryButtonText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
+                          {t('详情', 'Details')}
+                        </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.primaryButton, isClosing && styles.disabledButton]}
+                        style={[styles.primaryButton, { backgroundColor: colors.primary }, isClosing && styles.disabledButton]}
                         onPress={() => handleForceExit(trade.trade_id, trade.pair)}
                         disabled={isClosing}
                       >
-                        <Text style={styles.primaryButtonText}>
+                        <Text style={[styles.primaryButtonText, { fontSize: fs('sm') }]}>
                           {isClosing ? t('平仓中...', 'Closing...') : t('平仓', 'Close')}
                         </Text>
                       </TouchableOpacity>
@@ -360,41 +416,49 @@ export default function TradesScreen() {
             })
           )
         ) : tradeHistory.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Ionicons name="time-outline" size={44} color={Colors.dark.textMuted} />
-            <Text style={styles.emptyCardTitle}>{t('暂无历史记录', 'No trade history')}</Text>
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Ionicons name="time-outline" size={44} color={colors.textMuted} />
+            <Text style={[styles.emptyCardTitle, { color: colors.text, fontSize: fs('lg') }]}>
+              {t('暂无历史记录', 'No trade history')}
+            </Text>
           </View>
         ) : (
           <>
-            <View style={styles.historySummary}>
-              <Text style={styles.historySummaryText}>
+            <View style={[styles.historySummary, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+              <Text style={[styles.historySummaryText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                 {language === 'en' ? `${tradeHistory.length} records` : `共 ${tradeHistory.length} 条记录`}
               </Text>
             </View>
             {tradeHistory.map((trade) => {
               const isProfit = (trade.profit_abs ?? 0) >= 0;
-              const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+              const profitColor = isProfit ? colors.profit : colors.loss;
               const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
               return (
-                <Pressable key={trade.trade_id} style={styles.historyCard}>
+                <Pressable
+                  key={trade.trade_id}
+                  style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}
+                  onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
+                >
                   <View style={styles.historyHeader}>
-                    <Text style={styles.historyPair}>{trade.pair.replace(':', '/')}</Text>
+                    <Text style={[styles.historyPair, { color: colors.text, fontSize: fs('md') }]}>
+                      {trade.pair.replace(':', '/')}
+                    </Text>
                     <View>
-                      <Text style={[styles.historyProfit, { color: profitColor }]}>
+                      <Text style={[styles.historyProfit, { color: profitColor, fontSize: fs('md') }]}>
                         {isProfit ? '+' : ''}
                         {(trade.profit_abs ?? 0).toFixed(2)}
                       </Text>
-                      <Text style={[styles.historyProfitPct, { color: profitColor }]}>
+                      <Text style={[styles.historyProfitPct, { color: profitColor, fontSize: fs('xs') }]}>
                         {isProfit ? '+' : ''}
                         {profitPct.toFixed(2)}%
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.historyMetaText}>
+                  <Text style={[styles.historyMetaText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                     {t('开仓', 'Open')}: {(trade.open_rate ?? 0).toFixed(4)}   {t('平仓', 'Close')}:{' '}
                     {(trade.close_rate ?? 0).toFixed(4)}
                   </Text>
-                  <Text style={styles.historyMetaText}>
+                  <Text style={[styles.historyMetaText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                     {formatDate(trade.close_date ?? trade.open_date)}   {trade.exit_reason ?? trade.sell_reason ?? '-'}
                   </Text>
                 </Pressable>
@@ -405,32 +469,46 @@ export default function TradesScreen() {
       </ScrollView>
 
       <Modal animationType="slide" transparent visible={isEntryModalVisible} onRequestClose={closeEntryModal}>
-        <Pressable style={styles.modalBackdrop} onPress={closeEntryModal}>
-          <Pressable style={styles.modalCard} onPress={() => null}>
+        <Pressable style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]} onPress={closeEntryModal}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]} onPress={() => null}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderText}>
-                <Text style={styles.modalTitle}>{t('选择币对下单', 'Choose Pair')}</Text>
-                <Text style={styles.modalSubtitle}>
-                  {t('候选币对来自当前机器人白名单。', 'Pairs come from the current bot whitelist.')}
+                <Text style={[styles.modalTitle, { color: colors.text, fontSize: fs('lg') }]}>
+                  {t('选择币对下单', 'Choose Pair')}
+                </Text>
+                <Text style={[styles.modalSubtitle, { color: colors.textMuted, fontSize: fs('sm') }]}>
+                  {t('候选币对来自当前机器人的白名单。', 'Pairs come from the current bot whitelist.')}
                 </Text>
               </View>
               <TouchableOpacity onPress={closeEntryModal} disabled={isSubmittingEntry}>
-                <Ionicons name="close" size={22} color={Colors.dark.textMuted} />
+                <Ionicons name="close" size={22} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.sideSelector}>
               <TouchableOpacity
-                style={[styles.sideButton, entrySide === 'long' && styles.sideButtonLong]}
+                style={[
+                  styles.sideButton,
+                  { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
+                  entrySide === 'long' && { backgroundColor: colors.profitBg, borderColor: colors.profit },
+                ]}
                 onPress={() => setEntrySide('long')}
               >
-                <Text style={styles.sideButtonText}>{t('做多', 'Long')}</Text>
+                <Text style={[styles.sideButtonText, { color: colors.text, fontSize: fs('sm') }]}>
+                  {t('做多', 'Long')}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.sideButton, entrySide === 'short' && styles.sideButtonShort]}
+                style={[
+                  styles.sideButton,
+                  { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
+                  entrySide === 'short' && { backgroundColor: colors.lossBg, borderColor: colors.loss },
+                ]}
                 onPress={() => setEntrySide('short')}
               >
-                <Text style={styles.sideButtonText}>{t('做空', 'Short')}</Text>
+                <Text style={[styles.sideButtonText, { color: colors.text, fontSize: fs('sm') }]}>
+                  {t('做空', 'Short')}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -441,11 +519,21 @@ export default function TradesScreen() {
                 return (
                   <TouchableOpacity
                     key={pair}
-                    style={[styles.pairChip, selected && styles.pairChipActive]}
+                    style={[
+                      styles.pairChip,
+                      { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
+                      selected && { backgroundColor: colors.primaryBg, borderColor: colors.primary },
+                    ]}
                     onPress={() => setEntryPair(pair)}
                   >
-                    <Text style={[styles.pairChipText, selected && styles.pairChipTextActive]}>
-                      {pair}{blocked ? ` ${language === 'en' ? '(Open)' : '（已开仓）'}` : ''}
+                    <Text
+                      style={[
+                        styles.pairChipText,
+                        { color: selected ? colors.text : colors.textSecondary, fontSize: fs('sm') },
+                      ]}
+                    >
+                      {pair}
+                      {blocked ? ` ${language === 'en' ? '(Open)' : '（已开仓）'}` : ''}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -457,16 +545,19 @@ export default function TradesScreen() {
               onChangeText={setEntryStakeAmount}
               keyboardType="decimal-pad"
               placeholder={language === 'en' ? 'Stake amount (optional)' : '下单金额（可选）'}
-              placeholderTextColor={Colors.dark.textMuted}
-              style={styles.input}
+              placeholderTextColor={colors.textMuted}
+              style={[
+                styles.input,
+                { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder, color: colors.text, fontSize: fs('md') },
+              ]}
             />
 
             <TouchableOpacity
-              style={[styles.submitButton, (!entryPair || isSubmittingEntry) && styles.disabledButton]}
+              style={[styles.submitButton, { backgroundColor: colors.primary }, (!entryPair || isSubmittingEntry) && styles.disabledButton]}
               onPress={handleForceEntry}
               disabled={!entryPair || isSubmittingEntry}
             >
-              <Text style={styles.submitButtonText}>
+              <Text style={[styles.submitButtonText, { fontSize: fs('md') }]}>
                 {isSubmittingEntry ? t('提交中...', 'Submitting...') : t('提交模拟单', 'Submit Sim Order')}
               </Text>
             </TouchableOpacity>
@@ -478,16 +569,14 @@ export default function TradesScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.dark.background },
+  container: { flex: 1 },
   content: { padding: Spacing.lg, paddingBottom: 120 },
   segmentContainer: {
     flexDirection: 'row',
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.lg,
     padding: 4,
     marginBottom: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
   },
   segmentBtn: {
     flex: 1,
@@ -497,67 +586,56 @@ const styles = StyleSheet.create({
     gap: 2,
     borderRadius: BorderRadius.md,
   },
-  segmentBtnActive: { backgroundColor: Colors.dark.surfaceLight },
-  segmentText: { color: Colors.dark.textMuted, fontSize: FontSize.sm, fontWeight: '700' },
-  segmentTextActive: { color: Colors.dark.text },
-  segmentCount: { color: Colors.dark.textMuted, fontSize: FontSize.xs, fontFamily: 'SpaceMono' },
-  segmentCountActive: { color: Colors.dark.primary },
+  segmentText: { fontWeight: '700' },
+  segmentCount: { fontFamily: 'SpaceMono' },
   entryCard: {
-    backgroundColor: '#10253A',
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: '#244A69',
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
     gap: Spacing.sm,
   },
-  entryEyebrow: { color: '#8CC7FF', fontSize: FontSize.xs, fontWeight: '700' },
-  entryTitle: { color: '#F4FBFF', fontSize: FontSize.xl, fontWeight: '800' },
-  entrySubtitle: { color: '#B5CADC', fontSize: FontSize.sm, lineHeight: 20 },
+  entryEyebrow: { fontWeight: '700' },
+  entryTitle: { fontWeight: '800' },
+  entrySubtitle: { lineHeight: 20 },
   entryButton: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#8CC7FF',
   },
-  entryButtonText: { color: '#06111A', fontSize: FontSize.sm, fontWeight: '800' },
+  entryButtonText: { color: '#FFF', fontWeight: '800' },
   statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
   statsCard: {
     flex: 1,
-    backgroundColor: Colors.dark.surface,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
   },
-  statsLabel: { color: Colors.dark.textMuted, fontSize: FontSize.xs, marginBottom: 4 },
-  statsValue: { color: Colors.dark.text, fontSize: FontSize.lg, fontWeight: '700', fontFamily: 'SpaceMono' },
+  statsLabel: { marginBottom: 4 },
+  statsValue: { fontWeight: '700', fontFamily: 'SpaceMono' },
   tradeCard: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     gap: Spacing.md,
   },
   tradeTop: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md },
-  tradePair: { color: Colors.dark.text, fontSize: FontSize.md, fontWeight: '700', marginBottom: 4 },
+  tradePair: { fontWeight: '700', marginBottom: 4 },
   tradeBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.sm },
-  badgeText: { fontSize: FontSize.xs, fontWeight: '700' },
-  leverageText: { color: Colors.dark.textMuted, fontSize: FontSize.xs },
+  badgeText: { fontWeight: '700' },
+  leverageText: {},
   tradeProfitWrap: { alignItems: 'flex-end' },
-  tradeProfitValue: { fontSize: FontSize.lg, fontWeight: '700', fontFamily: 'SpaceMono' },
-  tradeProfitPct: { fontSize: FontSize.xs, fontFamily: 'SpaceMono', marginTop: 2 },
+  tradeProfitValue: { fontWeight: '700', fontFamily: 'SpaceMono' },
+  tradeProfitPct: { fontFamily: 'SpaceMono', marginTop: 2 },
   metricsRow: {
     gap: 6,
     padding: Spacing.md,
-    backgroundColor: Colors.dark.surfaceLight,
     borderRadius: BorderRadius.md,
   },
-  metricText: { color: Colors.dark.textSecondary, fontSize: FontSize.sm },
+  metricText: {},
   tradeMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -565,7 +643,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     flexWrap: 'wrap',
   },
-  tradeMetaText: { color: Colors.dark.textMuted, fontSize: FontSize.xs },
+  tradeMetaText: {},
   tradeActions: { flexDirection: 'row', gap: Spacing.sm },
   secondaryButton: {
     alignItems: 'center',
@@ -574,77 +652,66 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
   },
-  secondaryButtonText: { color: Colors.dark.textSecondary, fontSize: FontSize.sm, fontWeight: '700' },
+  secondaryButtonText: { fontWeight: '700' },
   primaryButton: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.dark.primary,
   },
-  primaryButtonText: { color: '#FFF', fontSize: FontSize.sm, fontWeight: '700' },
+  primaryButtonText: { color: '#FFF', fontWeight: '700' },
   disabledButton: { opacity: 0.6 },
   historySummary: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     marginBottom: Spacing.sm,
   },
-  historySummaryText: { color: Colors.dark.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
+  historySummaryText: { fontWeight: '600' },
   historyCard: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
     gap: 6,
   },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
-  historyPair: { color: Colors.dark.text, fontSize: FontSize.md, fontWeight: '700' },
-  historyProfit: { fontSize: FontSize.md, fontWeight: '700', fontFamily: 'SpaceMono', textAlign: 'right' },
-  historyProfitPct: { fontSize: FontSize.xs, fontFamily: 'SpaceMono', textAlign: 'right' },
-  historyMetaText: { color: Colors.dark.textSecondary, fontSize: FontSize.sm },
+  historyPair: { fontWeight: '700' },
+  historyProfit: { fontWeight: '700', fontFamily: 'SpaceMono', textAlign: 'right' },
+  historyProfitPct: { fontFamily: 'SpaceMono', textAlign: 'right' },
+  historyMetaText: {},
   emptyCenter: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: Spacing.md },
   emptyIconWrap: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: Colors.dark.primaryBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyText: { color: Colors.dark.textSecondary, fontSize: FontSize.lg, fontWeight: '600' },
+  emptyText: { fontWeight: '600' },
   emptyCard: {
-    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     padding: Spacing.xxxl,
     alignItems: 'center',
   },
-  emptyCardTitle: { color: Colors.dark.text, fontSize: FontSize.lg, fontWeight: '700', marginTop: Spacing.md },
-  emptyCardSubtitle: { color: Colors.dark.textMuted, fontSize: FontSize.sm, textAlign: 'center', marginTop: Spacing.xs },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(2, 6, 23, 0.72)', justifyContent: 'flex-end' },
+  emptyCardTitle: { fontWeight: '700', marginTop: Spacing.md },
+  emptyCardSubtitle: { textAlign: 'center', marginTop: Spacing.xs },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: Colors.dark.surface,
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     padding: Spacing.lg,
     gap: Spacing.md,
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: Spacing.md },
   modalHeaderText: { flex: 1 },
-  modalTitle: { color: Colors.dark.text, fontSize: FontSize.lg, fontWeight: '800' },
-  modalSubtitle: { color: Colors.dark.textMuted, fontSize: FontSize.sm, marginTop: 4, lineHeight: 20 },
+  modalTitle: { fontWeight: '800' },
+  modalSubtitle: { marginTop: 4, lineHeight: 20 },
   sideSelector: { flexDirection: 'row', gap: Spacing.sm },
   sideButton: {
     flex: 1,
@@ -653,43 +720,27 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    backgroundColor: Colors.dark.surfaceLight,
   },
-  sideButtonLong: { backgroundColor: Colors.dark.profitBg, borderColor: Colors.dark.profit },
-  sideButtonShort: { backgroundColor: Colors.dark.lossBg, borderColor: Colors.dark.loss },
-  sideButtonText: { color: Colors.dark.text, fontSize: FontSize.sm, fontWeight: '700' },
+  sideButtonText: { fontWeight: '700' },
   pairChipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   pairChip: {
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    backgroundColor: Colors.dark.surfaceLight,
   },
-  pairChipActive: {
-    backgroundColor: Colors.dark.primaryBg,
-    borderColor: Colors.dark.primary,
-  },
-  pairChipText: { color: Colors.dark.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
-  pairChipTextActive: { color: Colors.dark.text },
+  pairChipText: { fontWeight: '600' },
   input: {
-    backgroundColor: Colors.dark.surfaceLight,
     borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
     paddingVertical: 14,
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
   },
   submitButton: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
-    backgroundColor: Colors.dark.primary,
   },
-  submitButtonText: { color: '#FFF', fontSize: FontSize.md, fontWeight: '800' },
+  submitButtonText: { color: '#FFF', fontWeight: '800' },
 });
