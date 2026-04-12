@@ -6,9 +6,11 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
 
 import { getThemeColors } from '@/constants/Colors';
+import { initializeNotifications } from '@/src/services/notifications';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { useNotificationStore } from '@/src/stores/useNotificationStore';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -25,6 +27,7 @@ export default function RootLayout() {
   const loadLanguage = useI18nStore((s) => s.loadLanguage);
   const loadAppearance = useAppearanceStore((s) => s.loadSettings);
   const appearanceReady = useAppearanceStore((s) => s.isReady);
+  const loadNotifications = useNotificationStore((s) => s.loadSettings);
 
   useEffect(() => {
     if (fontError) throw fontError;
@@ -32,10 +35,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!fontsLoaded) return;
+    initializeNotifications();
     loadAppearance();
     loadLanguage();
+    loadNotifications();
     restoreSession();
-  }, [fontsLoaded, loadAppearance, loadLanguage, restoreSession]);
+  }, [fontsLoaded, loadAppearance, loadLanguage, loadNotifications, restoreSession]);
 
   if (!fontsLoaded || !appearanceReady) {
     return <View style={styles.appBackground} />;
@@ -48,6 +53,7 @@ function RootLayoutNav() {
   const language = useI18nStore((s) => s.language);
   const themeMode = useAppearanceStore((s) => s.themeMode);
   const colors = getThemeColors(themeMode);
+  const statusBarStyle = themeMode === 'light' ? 'dark' : 'light';
 
   const appTheme = {
     ...DarkTheme,
@@ -65,7 +71,7 @@ function RootLayoutNav() {
   return (
     <View style={[styles.appBackground, { backgroundColor: colors.background }]}>
       <ThemeProvider value={appTheme}>
-        <StatusBar style="light" backgroundColor={colors.background} translucent={false} />
+        <StatusBar style={statusBarStyle} backgroundColor={colors.background} translucent={false} />
         <Stack
           screenOptions={{
             animation: 'slide_from_right',

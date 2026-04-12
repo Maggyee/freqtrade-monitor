@@ -12,7 +12,14 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import {
+  BorderRadius,
+  Colors,
+  FontSize,
+  Spacing,
+  getScaledFontSize,
+  getThemeColors,
+} from '@/constants/Colors';
 import {
   CandleData,
   Trade,
@@ -20,8 +27,10 @@ import {
   fetchExchangeCandlesWindow,
 } from '@/src/api/freqtradeClient';
 import CandleChart from '@/src/components/CandleChart';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { haptics } from '@/src/utils/haptics';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d'];
@@ -97,6 +106,10 @@ export default function TradeDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
+  const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
   const { openTrades, tradeHistory, forceExit, botState } = useBotStore();
 
@@ -172,11 +185,17 @@ export default function TradeDetailScreen() {
         const candleMs = timeframeToMs(timeframe);
         const openTs = getEntryTimestamp(shownTrade) ?? 0;
         const closeTs = getExitTimestamp(shownTrade) ?? openTs;
+        const contextCandles =
+          timeframe === '1m' ? 120 :
+          timeframe === '5m' ? 96 :
+          timeframe === '15m' ? 72 :
+          timeframe === '1h' ? 60 :
+          timeframe === '4h' ? 36 : 24;
         parsed = await fetchExchangeCandlesWindow(
           shownTrade.pair,
           timeframe,
-          Math.max(0, openTs - candleMs * 12),
-          closeTs + candleMs * 12,
+          Math.max(0, openTs - candleMs * contextCandles),
+          closeTs + candleMs * contextCandles,
           binanceProxyUrl,
         );
       } else if (timeframe === strategyTf) {
@@ -210,13 +229,17 @@ export default function TradeDetailScreen() {
           text: t('确认', 'Confirm'),
           style: 'destructive',
           onPress: async () => {
+            await haptics.medium();
             setIsClosingTrade(true);
             try {
               const success = await forceExit(tradeId);
               if (success) {
+                await haptics.success();
                 Alert.alert(t('平仓成功', 'Closed'), '', [
                   { text: t('确定', 'OK'), onPress: () => router.back() },
                 ]);
+              } else {
+                await haptics.error();
               }
             } finally {
               setIsClosingTrade(false);
@@ -229,6 +252,7 @@ export default function TradeDetailScreen() {
 
   const handleShareTrade = async () => {
     if (!shownTrade || isSharingTrade) return;
+    await haptics.medium();
     setIsSharingTrade(true);
     try {
       const direction = shownTrade.is_short ? t('做空', 'Short') : t('做多', 'Long');
@@ -250,19 +274,19 @@ export default function TradeDetailScreen() {
 
   if (!shownTrade) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Stack.Screen
           options={{
             title: t('交易详情', 'Trade Detail'),
-            headerStyle: { backgroundColor: Colors.dark.background },
-            headerTintColor: Colors.dark.text,
+            headerStyle: { backgroundColor: colors.background },
+            headerTintColor: colors.text,
           }}
         />
         <View style={styles.emptyCenter}>
-          <Ionicons name="alert-circle-outline" size={48} color={Colors.dark.textMuted} />
-          <Text style={styles.emptyText}>{t('交易未找到，可能已经被清理。', 'Trade not found.')}</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.8}>
-            <Text style={styles.backButtonText}>{t('返回', 'Back')}</Text>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary, fontSize: fs('md') }]}>{t('交易未找到，可能已经被清理。', 'Trade not found.')}</Text>
+          <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.primary }]} onPress={() => router.back()} activeOpacity={0.8}>
+            <Text style={[styles.backButtonText, { fontSize: fs('md') }]}>{t('返回', 'Back')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -272,7 +296,7 @@ export default function TradeDetailScreen() {
   const entryTimestamp = getEntryTimestamp(shownTrade);
   const exitTimestamp = getExitTimestamp(shownTrade);
   const isProfit = shownTrade.profit_pct >= 0;
-  const profitColor = isProfit ? Colors.dark.profit : Colors.dark.loss;
+  const profitColor = isProfit ? colors.profit : colors.loss;
   const displayPct = toDisplayProfitPercent(shownTrade.profit_pct, shownTrade.profit_ratio);
   const openDate =
     typeof entryTimestamp === 'number' ? new Date(entryTimestamp) : parseApiDate(shownTrade.open_date) ?? new Date();
@@ -294,40 +318,40 @@ export default function TradeDetailScreen() {
         : `${minutes}m`;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen
         options={{
           title: '',
-          headerStyle: { backgroundColor: Colors.dark.background },
-          headerTintColor: Colors.dark.text,
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.text,
           headerShadowVisible: false,
         }}
       />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.titleRow}>
-          <Text style={styles.pairTitle}>{shownTrade.pair.replace(':', '/')}</Text>
+          <Text style={[styles.pairTitle, { color: colors.text, fontSize: fs('xxl') }]}>{shownTrade.pair.replace(':', '/')}</Text>
           <View
             style={[
               styles.badge,
-              { backgroundColor: shownTrade.is_short ? Colors.dark.lossBg : Colors.dark.profitBg },
+              { backgroundColor: shownTrade.is_short ? colors.lossBg : colors.profitBg },
             ]}
           >
             <Text
               style={[
                 styles.badgeText,
-                { color: shownTrade.is_short ? Colors.dark.loss : Colors.dark.profit },
+                { color: shownTrade.is_short ? colors.loss : colors.profit, fontSize: fs('xs') },
               ]}
             >
               {shownTrade.is_short ? t('做空', 'Short') : t('做多', 'Long')}
             </Text>
           </View>
-          <View style={[styles.badge, { backgroundColor: Colors.dark.primaryBg }]}>
-            <Text style={[styles.badgeText, { color: Colors.dark.primary }]}>{shownTrade.leverage}x</Text>
+          <View style={[styles.badge, { backgroundColor: colors.primaryBg }]}>
+            <Text style={[styles.badgeText, { color: colors.primary, fontSize: fs('xs') }]}>{shownTrade.leverage}x</Text>
           </View>
           {!shownTrade.is_open ? (
-            <View style={[styles.badge, { backgroundColor: Colors.dark.surfaceLight }]}>
-              <Text style={[styles.badgeText, { color: Colors.dark.textSecondary }]}>
+            <View style={[styles.badge, { backgroundColor: colors.surfaceLight }]}>
+              <Text style={[styles.badgeText, { color: colors.textSecondary, fontSize: fs('xs') }]}>
                 {t('已平仓', 'Closed')}
               </Text>
             </View>
@@ -335,36 +359,36 @@ export default function TradeDetailScreen() {
         </View>
 
         <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>{t('开仓价', 'Entry')}</Text>
-            <Text style={styles.summaryValue}>{formatMoney(shownTrade.open_rate, 2)}</Text>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('开仓价', 'Entry')}</Text>
+            <Text style={[styles.summaryValue, { color: colors.text, fontSize: fs('sm') }]}>{formatMoney(shownTrade.open_rate, 2)}</Text>
           </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
               {shownTrade.is_open ? t('当前价', 'Current') : t('平仓价', 'Exit')}
             </Text>
-            <Text style={styles.summaryValue}>
+            <Text style={[styles.summaryValue, { color: colors.text, fontSize: fs('sm') }]}>
               {shownTrade.is_open
                 ? formatMoney(shownTrade.current_rate, 2)
                 : formatMoney(shownTrade.close_rate, 2)}
             </Text>
           </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>{t('持仓', 'Duration')}</Text>
-            <Text style={styles.summaryValue}>{durationText}</Text>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('持仓', 'Duration')}</Text>
+            <Text style={[styles.summaryValue, { color: colors.text, fontSize: fs('sm') }]}>{durationText}</Text>
           </View>
         </View>
 
         <View style={styles.priceSection}>
-          <Text style={styles.priceLabel}>
+          <Text style={[styles.priceLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
             {shownTrade.is_open ? t('实时价格', 'Live Price') : t('成交结果', 'Trade Result')}
           </Text>
-          <Text style={styles.priceValue}>
+          <Text style={[styles.priceValue, { color: colors.text, fontSize: fs('hero') }]}>
             {shownTrade.is_open
               ? formatMoney(shownTrade.current_rate, 2)
               : formatMoney(shownTrade.close_rate, 2)}
           </Text>
-          <Text style={[styles.priceDelta, { color: profitColor }]}>
+          <Text style={[styles.priceDelta, { color: profitColor, fontSize: fs('md') }]}>
             {isProfit ? '+' : ''}
             {displayPct.toFixed(2)}%
           </Text>
@@ -374,14 +398,22 @@ export default function TradeDetailScreen() {
           {timeframes.map((timeframe) => (
             <TouchableOpacity
               key={timeframe}
-              style={[styles.timeframeButton, selectedTimeframe === timeframe && styles.timeframeButtonActive]}
-              onPress={() => setSelectedTimeframe(timeframe)}
+              style={[
+                styles.timeframeButton,
+                { backgroundColor: colors.surface, borderColor: colors.surfaceBorder },
+                selectedTimeframe === timeframe && { backgroundColor: colors.primaryBg, borderColor: colors.primary },
+              ]}
+              onPress={async () => {
+                await haptics.selection();
+                setSelectedTimeframe(timeframe);
+              }}
               activeOpacity={0.75}
             >
               <Text
                 style={[
                   styles.timeframeButtonText,
-                  selectedTimeframe === timeframe && styles.timeframeButtonTextActive,
+                  { color: colors.textMuted, fontSize: fs('xs') },
+                  selectedTimeframe === timeframe && [styles.timeframeButtonTextActive, { color: colors.primary }],
                 ]}
               >
                 {timeframe}
@@ -403,15 +435,15 @@ export default function TradeDetailScreen() {
           timeframe={selectedTimeframe}
         />
 
-        <View style={[styles.pnlCard, { borderColor: profitColor }]}>
-          <Text style={styles.pnlLabel}>{t('本笔盈亏', 'Trade P&L')}</Text>
+        <View style={[styles.pnlCard, { backgroundColor: colors.surface, borderColor: profitColor }]}>
+          <Text style={[styles.pnlLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('本笔盈亏', 'Trade P&L')}</Text>
           <View style={styles.pnlRow}>
-            <Text style={[styles.pnlAbs, { color: profitColor }]}>
+            <Text style={[styles.pnlAbs, { color: profitColor, fontSize: fs('xxl') }]}>
               {isProfit ? '+' : ''}
               {formatFixed(shownTrade.profit_abs, 4)}
             </Text>
-            <View style={[styles.pnlBadge, { backgroundColor: isProfit ? Colors.dark.profitBg : Colors.dark.lossBg }]}>
-              <Text style={[styles.pnlBadgeText, { color: profitColor }]}>
+            <View style={[styles.pnlBadge, { backgroundColor: isProfit ? colors.profitBg : colors.lossBg }]}>
+              <Text style={[styles.pnlBadgeText, { color: profitColor, fontSize: fs('sm') }]}>
                 {isProfit ? '+' : ''}
                 {displayPct.toFixed(2)}%
               </Text>
@@ -419,64 +451,64 @@ export default function TradeDetailScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>{t('交易指标', 'Trade Metrics')}</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text, fontSize: fs('lg') }]}>{t('交易指标', 'Trade Metrics')}</Text>
         <View style={styles.metricsGrid}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>{t('仓位', 'Stake')}</Text>
-            <Text style={styles.metricValue}>{formatFixed(shownTrade.stake_amount, 2)}</Text>
+          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.metricLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('仓位', 'Stake')}</Text>
+            <Text style={[styles.metricValue, { color: colors.text, fontSize: fs('sm') }]}>{formatFixed(shownTrade.stake_amount, 2)}</Text>
           </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>{t('止损价', 'Stoploss')}</Text>
-            <Text style={[styles.metricValue, { color: Colors.dark.loss }]}>
+          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.metricLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('止损价', 'Stoploss')}</Text>
+            <Text style={[styles.metricValue, { color: colors.loss, fontSize: fs('sm') }]}>
               {formatFixed(shownTrade.stop_loss_abs, 4)}
             </Text>
           </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>{t('最高价', 'Max Rate')}</Text>
-            <Text style={styles.metricValue}>{formatFixed(shownTrade.max_rate, 4)}</Text>
+          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.metricLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('最高价', 'Max Rate')}</Text>
+            <Text style={[styles.metricValue, { color: colors.text, fontSize: fs('sm') }]}>{formatFixed(shownTrade.max_rate, 4)}</Text>
           </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>{t('最低价', 'Min Rate')}</Text>
-            <Text style={styles.metricValue}>{formatFixed(shownTrade.min_rate, 4)}</Text>
+          <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.metricLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('最低价', 'Min Rate')}</Text>
+            <Text style={[styles.metricValue, { color: colors.text, fontSize: fs('sm') }]}>{formatFixed(shownTrade.min_rate, 4)}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>{t('订单时间线', 'Timeline')}</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text, fontSize: fs('lg') }]}>{t('订单时间线', 'Timeline')}</Text>
         <View style={styles.timeline}>
           <View style={styles.timelineItem}>
             <View style={styles.timelineDotColumn}>
-              <View style={[styles.timelineDot, { backgroundColor: Colors.dark.primary }]} />
-              <View style={styles.timelineLine} />
+              <View style={[styles.timelineDot, { backgroundColor: colors.primary }]} />
+              <View style={[styles.timelineLine, { backgroundColor: colors.surfaceBorder }]} />
             </View>
             <View style={styles.timelineContent}>
-              <Text style={styles.timelineTitle}>{t('开仓', 'Entry')}</Text>
-              <Text style={styles.timelineSubtitle}>
+              <Text style={[styles.timelineTitle, { color: colors.text, fontSize: fs('md') }]}>{t('开仓', 'Entry')}</Text>
+              <Text style={[styles.timelineSubtitle, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                 {formatFixed(shownTrade.amount, 4)} @ {formatMoney(shownTrade.open_rate, 2)}
               </Text>
-              <Text style={styles.timelineTime}>{formatTime(entryTimestamp, shownTrade.open_date)}</Text>
+              <Text style={[styles.timelineTime, { color: colors.textMuted, fontSize: fs('xs') }]}>{formatTime(entryTimestamp, shownTrade.open_date)}</Text>
             </View>
           </View>
 
           {shownTrade.close_date ? (
             <View style={styles.timelineItem}>
               <View style={styles.timelineDotColumn}>
-                <View style={[styles.timelineDot, { backgroundColor: Colors.dark.warning }]} />
+                <View style={[styles.timelineDot, { backgroundColor: colors.warning }]} />
               </View>
               <View style={styles.timelineContent}>
-                <Text style={styles.timelineTitle}>{t('平仓', 'Exit')}</Text>
-                <Text style={styles.timelineSubtitle}>{formatMoney(shownTrade.close_rate, 2)}</Text>
-                <Text style={styles.timelineTime}>{formatTime(exitTimestamp, shownTrade.close_date)}</Text>
+                <Text style={[styles.timelineTitle, { color: colors.text, fontSize: fs('md') }]}>{t('平仓', 'Exit')}</Text>
+                <Text style={[styles.timelineSubtitle, { color: colors.textSecondary, fontSize: fs('sm') }]}>{formatMoney(shownTrade.close_rate, 2)}</Text>
+                <Text style={[styles.timelineTime, { color: colors.textMuted, fontSize: fs('xs') }]}>{formatTime(exitTimestamp, shownTrade.close_date)}</Text>
               </View>
             </View>
           ) : (
             <View style={styles.timelineItem}>
               <View style={styles.timelineDotColumn}>
-                <View style={[styles.timelineDot, { backgroundColor: Colors.dark.primary }]} />
+                <View style={[styles.timelineDot, { backgroundColor: colors.primary }]} />
               </View>
               <View style={styles.timelineContent}>
-                <Text style={styles.timelineTitle}>{t('持仓进行中', 'Position Active')}</Text>
-                <Text style={styles.timelineSubtitle}>{t('已持有', 'Open for')} {durationText}</Text>
-                <Text style={styles.timelineTime}>{t('现在', 'Now')}</Text>
+                <Text style={[styles.timelineTitle, { color: colors.text, fontSize: fs('md') }]}>{t('持仓进行中', 'Position Active')}</Text>
+                <Text style={[styles.timelineSubtitle, { color: colors.textSecondary, fontSize: fs('sm') }]}>{t('已持有', 'Open for')} {durationText}</Text>
+                <Text style={[styles.timelineTime, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('现在', 'Now')}</Text>
               </View>
             </View>
           )}
@@ -484,24 +516,24 @@ export default function TradeDetailScreen() {
 
         <View style={styles.bottomActions}>
           <TouchableOpacity
-            style={[styles.secondaryButton, isSharingTrade && styles.disabledButton]}
+            style={[styles.secondaryButton, { borderColor: colors.surfaceBorder, backgroundColor: colors.surface }, isSharingTrade && styles.disabledButton]}
             onPress={handleShareTrade}
             disabled={isSharingTrade || isClosingTrade}
             activeOpacity={0.75}
           >
             {isSharingTrade ? (
-              <ActivityIndicator size="small" color={Colors.dark.textSecondary} />
+              <ActivityIndicator size="small" color={colors.textSecondary} />
             ) : (
-              <Ionicons name="share-outline" size={18} color={Colors.dark.textSecondary} />
+              <Ionicons name="share-outline" size={18} color={colors.textSecondary} />
             )}
-            <Text style={styles.secondaryButtonText}>
+            <Text style={[styles.secondaryButtonText, { color: colors.textSecondary, fontSize: fs('md') }]}>
               {isSharingTrade ? t('分享中...', 'Sharing...') : t('分享', 'Share')}
             </Text>
           </TouchableOpacity>
 
           {shownTrade.is_open ? (
             <TouchableOpacity
-              style={[styles.primaryButton, isClosingTrade && styles.disabledButton]}
+              style={[styles.primaryButton, { backgroundColor: colors.primary }, isClosingTrade && styles.disabledButton]}
               onPress={handleForceExit}
               disabled={isClosingTrade || isSharingTrade}
               activeOpacity={0.75}
@@ -511,7 +543,7 @@ export default function TradeDetailScreen() {
               ) : (
                 <Ionicons name="close-circle-outline" size={18} color="#FFF" />
               )}
-              <Text style={styles.primaryButtonText}>
+              <Text style={[styles.primaryButtonText, { fontSize: fs('md') }]}>
                 {isClosingTrade ? t('平仓中...', 'Closing...') : t('平仓', 'Close Trade')}
               </Text>
             </TouchableOpacity>

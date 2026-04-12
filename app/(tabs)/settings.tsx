@@ -1,217 +1,239 @@
-import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  LayoutAnimation,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Easing, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import { BorderRadius, FontSize, Spacing, getScaledFontSize, getThemeColors } from '@/constants/Colors';
+import { getNotificationPermission, requestNotificationPermission } from '@/src/services/notifications';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { useNotificationStore } from '@/src/stores/useNotificationStore';
+import { haptics } from '@/src/utils/haptics';
+
+function ToggleSwitch({
+  value,
+  onToggle,
+  disabled = false,
+  activeColor,
+  inactiveColor,
+  thumbColor,
+  disabledThumbColor,
+}: {
+  value: boolean;
+  onToggle: (next: boolean) => void;
+  disabled?: boolean;
+  activeColor: string;
+  inactiveColor: string;
+  thumbColor: string;
+  disabledThumbColor: string;
+}) {
+  const progress = useRef(new Animated.Value(value ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: value ? 1 : 0,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [progress, value]);
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [2, 17],
+  });
+
+  const trackColor = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [inactiveColor, activeColor],
+  });
+
+  return (
+    <Pressable
+      onPress={() => !disabled && onToggle(!value)}
+      disabled={disabled}
+      hitSlop={8}
+      style={({ pressed }) => [
+        styles.togglePressable,
+        disabled && styles.toggleDisabled,
+        pressed && !disabled && styles.togglePressed,
+      ]}
+    >
+      <Animated.View style={[styles.toggleTrack, { backgroundColor: trackColor }]}>
+        <Animated.View
+          style={[
+            styles.toggleThumb,
+            {
+              backgroundColor: disabled ? disabledThumbColor : thumbColor,
+              transform: [{ translateX }],
+            },
+          ]}
+        />
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
   const language = useI18nStore((s) => s.language);
   const themeMode = useAppearanceStore((s) => s.themeMode);
   const fontScale = useAppearanceStore((s) => s.fontScale);
+  const colors = getThemeColors(themeMode);
+  const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
-  const {
-    isConnected,
-    isLoading,
-    botState,
-    server,
-    servers,
-    activeServerId,
-    connect,
-    switchServer,
-    removeServer,
-    disconnect,
-    startBot,
-    stopBot,
-    refreshAll,
-  } = useBotStore();
 
-  const [tradeAlerts, setTradeAlerts] = useState(true);
-  const [priceThresholds, setPriceThresholds] = useState(false);
-  const [systemAlerts, setSystemAlerts] = useState(true);
-  const [dryRunMode, setDryRunMode] = useState(false);
+  const bot = useBotStore();
+  const notifications = useNotificationStore();
+  const activeServer = useMemo(
+    () => (bot.activeServerId ? bot.servers.find((item) => item.id === bot.activeServerId) ?? null : null),
+    [bot.activeServerId, bot.servers],
+  );
 
-  const [showConnectForm, setShowConnectForm] = useState(false);
-  const [showServerManager, setShowServerManager] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
+  const [showServers, setShowServers] = useState(false);
   const [formUrl, setFormUrl] = useState('');
   const [formUser, setFormUser] = useState('');
   const [formPass, setFormPass] = useState('');
-  const [isConnectingForm, setIsConnectingForm] = useState(false);
-  const [isSwitchingServerId, setIsSwitchingServerId] = useState<string | null>(null);
-  const [isDeletingServerId, setIsDeletingServerId] = useState<string | null>(null);
-  const [isStartingBot, setIsStartingBot] = useState(false);
-  const [isStoppingBot, setIsStoppingBot] = useState(false);
-  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [switchingServer, setSwitchingServer] = useState<string | null>(null);
+  const [deletingServer, setDeletingServer] = useState<string | null>(null);
+  const [isTogglingDryRun, setIsTogglingDryRun] = useState(false);
 
-  const onRefresh = useCallback(async () => {
-    await refreshAll();
-  }, [refreshAll]);
+  const profileUrl = bot.server?.url || activeServer?.url || '';
+  const dryRunMode = !!bot.botState?.dry_run;
+  const liveReady = bot.adminConfig?.live_ready ?? false;
+  const liveBlockers = bot.adminConfig?.live_blockers ?? [];
+  const switchThumbColor = themeMode === 'light' ? '#FFFFFF' : '#F8FAFC';
+  const switchDisabledThumbColor = themeMode === 'light' ? '#E2E8F0' : '#64748B';
 
-  const activeServer = activeServerId ? servers.find((item) => item.id === activeServerId) ?? null : null;
-  const profileServerUrl = server?.url || activeServer?.url || '';
-  const canSubmitConnectForm = !!formUrl.trim() && !!formUser.trim() && !!formPass.trim();
+  const ensurePermission = async () => {
+    const granted = (await getNotificationPermission()) || (await requestNotificationPermission());
+    await notifications.setPermissionGranted(granted);
+    return granted;
+  };
+
+  const handleNotification = async (value: boolean, setter: (enabled: boolean) => Promise<void>, label: string) => {
+    await haptics.light();
+    if (!value) {
+      await setter(false);
+      return;
+    }
+    const granted = await ensurePermission();
+    if (!granted) {
+      await haptics.error();
+      Alert.alert(t('通知权限被拒绝', 'Notification Permission Needed'), language === 'en' ? `Allow notifications to enable ${label}.` : `请先允许系统通知，才能开启${label}。`);
+      return;
+    }
+    await setter(true);
+    await haptics.success();
+  };
 
   const handleConnect = async () => {
-    if (isConnectingForm || !canSubmitConnectForm) return;
-    setIsConnectingForm(true);
+    if (!formUrl.trim() || !formUser.trim() || !formPass.trim() || isConnecting) return;
+    await haptics.medium();
+    setIsConnecting(true);
     try {
-      const success = await connect(formUrl.trim(), formUser.trim(), formPass);
+      const success = await bot.connect(formUrl.trim(), formUser.trim(), formPass);
+      await (success ? haptics.success() : haptics.error());
       if (success) {
-        setShowConnectForm(false);
         setFormUrl('');
         setFormUser('');
         setFormPass('');
+        setShowConnect(false);
       }
     } finally {
-      setIsConnectingForm(false);
+      setIsConnecting(false);
     }
   };
 
-  const handleStartBot = async () => {
-    if (isStartingBot || isStoppingBot || botState?.state === 'running') return;
-    setIsStartingBot(true);
-    try {
-      await startBot();
-    } finally {
-      setIsStartingBot(false);
-    }
-  };
-
-  const handleStopBot = async () => {
-    if (isStartingBot || isStoppingBot || botState?.state !== 'running') return;
-    setIsStoppingBot(true);
-    try {
-      await stopBot();
-    } finally {
-      setIsStoppingBot(false);
-    }
-  };
-
-  const handleSwitchServer = async (serverId: string) => {
-    if (isSwitchingServerId || serverId === activeServerId) return;
-    setIsSwitchingServerId(serverId);
-    try {
-      const success = await switchServer(serverId);
-      if (!success) {
-        Alert.alert(
-          t('切换失败', 'Switch Failed'),
-          t('该服务会话已失效，请重新连接。', 'Session expired for this server. Please reconnect.'),
-        );
-      }
-    } finally {
-      setIsSwitchingServerId(null);
-    }
-  };
-
-  const handleDeleteServer = (serverId: string, serverName: string) => {
-    Alert.alert(
-      t('删除服务器', 'Remove Server'),
-      language === 'en'
-        ? `Remove "${serverName}"?`
-        : `确定删除 “${serverName}” 吗？`,
-      [
-        { text: t('取消', 'Cancel'), style: 'cancel' },
-        {
-          text: t('删除', 'Remove'),
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeletingServerId(serverId);
-            try {
-              await removeServer(serverId);
-            } finally {
-              setIsDeletingServerId(null);
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const handleDisconnect = () => {
-    Alert.alert(
-      t('断开连接', 'Disconnect'),
-      t('确定要断开当前 Bot 连接吗？', 'Disconnect from the current bot?'),
-      [
-        { text: t('取消', 'Cancel'), style: 'cancel' },
-        {
-          text: t('断开', 'Disconnect'),
-          style: 'destructive',
-          onPress: () => disconnect(),
-        },
-      ],
-    );
-  };
-
-  const handleClearCache = async () => {
-    if (isClearingCache) return;
-    setIsClearingCache(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+  const handleDryRunToggle = async (nextValue: boolean) => {
+    if (!bot.isConnected || isTogglingDryRun) return;
+    if (!nextValue && !liveReady) {
+      await haptics.error();
       Alert.alert(
-        t('缓存已刷新', 'Cache Refreshed'),
-        t('本地缓存已清理，界面状态已重新同步。', 'Local cache is cleared and view state has been refreshed.'),
+        t('无法切换到实盘', 'Live Mode Blocked'),
+        liveBlockers.length > 0
+          ? liveBlockers.join('\n')
+          : t('当前服务器缺少实盘配置。', 'The current server is missing live-trading credentials.'),
       );
+      return;
+    }
+    await haptics.medium();
+    setIsTogglingDryRun(true);
+    try {
+      const result = await bot.toggleDryRun(nextValue);
+      if (!result.success) {
+        await haptics.error();
+        Alert.alert(t('切换失败', 'Update Failed'), result.message ?? t('无法更新模式。', 'Unable to update mode.'));
+        return;
+      }
+      await haptics.success();
+      Alert.alert(nextValue ? t('已切换到模拟盘', 'Dry-run Enabled') : t('已切换到实盘', 'Live Mode Enabled'), result.message ?? '');
     } finally {
-      setIsClearingCache(false);
+      setIsTogglingDryRun(false);
     }
   };
 
-  const toggleConnectForm = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setShowConnectForm((prev) => !prev);
+  const section = (title: string, children: React.ReactNode) => (
+    <View style={styles.sectionWrap}>
+      <Text style={[styles.sectionLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{title}</Text>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>{children}</View>
+    </View>
+  );
+
+  const row = (icon: keyof typeof Ionicons.glyphMap, title: string, subtitle: string | null, action: React.ReactNode, onPress?: () => void) => {
+    const content = (
+      <View style={[styles.row, onPress && { paddingVertical: Spacing.md }]}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
+        <View style={styles.info}>
+          <Text style={[styles.title, { color: colors.text, fontSize: fs('md') }]}>{title}</Text>
+          {subtitle ? <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: fs('xs') }]}>{subtitle}</Text> : null}
+        </View>
+        {action}
+      </View>
+    );
+    if (!onPress) return content;
+    return <Pressable onPress={onPress}>{content}</Pressable>;
   };
 
-  const toggleServerManager = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setShowServerManager((prev) => !prev);
-  };
+  const renderSwitch = (value: boolean, onValueChange: (next: boolean) => void, disabled = false) => (
+    <ToggleSwitch
+      value={value}
+      onToggle={onValueChange}
+      disabled={disabled}
+      activeColor={colors.primary}
+      inactiveColor={colors.surfaceLight}
+      thumbColor={switchThumbColor}
+      disabledThumbColor={switchDisabledThumbColor}
+    />
+  );
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl
-          refreshing={isLoading}
-          onRefresh={onRefresh}
-          tintColor={Colors.dark.primary}
-          colors={[Colors.dark.primary]}
-        />
-      }
+      refreshControl={<RefreshControl refreshing={bot.isLoading} onRefresh={bot.refreshAll} tintColor={colors.primary} colors={[colors.primary]} />}
     >
-      <View style={styles.profileCard}>
+      <View style={[styles.profileCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
         <View style={styles.profileTopRow}>
-          <View style={styles.avatar}>
-            <Ionicons name="person" size={26} color={Colors.dark.primary} />
+          <View style={[styles.avatar, { backgroundColor: colors.primaryBg, borderColor: colors.primary }]}>
+            <Ionicons name="person" size={26} color={colors.primary} />
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{t('Freqtrade 用户', 'Freqtrade User')}</Text>
-            <Text style={styles.profileSubtitle}>
-              {profileServerUrl || t('尚未连接服务器', 'No server connected')}
+            <Text style={[styles.profileName, { color: colors.text, fontSize: fs('xl') }]}>
+              {t('Freqtrade 用户', 'Freqtrade User')}
+            </Text>
+            <Text style={[styles.profileSubtitle, { color: colors.textSecondary, fontSize: fs('sm') }]}>
+              {profileUrl || t('尚未连接服务器', 'No server connected')}
             </Text>
           </View>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>
-              {!isConnected
+          <View style={[styles.statusBadge, { backgroundColor: colors.primaryBg }]}>
+            <Text style={[styles.statusBadgeText, { color: colors.primary, fontSize: fs('xs') }]}>
+              {!bot.isConnected
                 ? t('未连接', 'Offline')
-                : botState?.state === 'running'
+                : bot.botState?.state === 'running'
                   ? t('运行中', 'Running')
                   : t('已停止', 'Stopped')}
             </Text>
@@ -219,552 +241,203 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.profileStatsRow}>
-          <View style={styles.profileStatCard}>
-            <Text style={styles.profileStatLabel}>{t('服务器', 'Servers')}</Text>
-            <Text style={styles.profileStatValue}>{servers.length}</Text>
+          <View style={[styles.profileStatCard, { backgroundColor: colors.surfaceLight }]}>
+            <Text style={[styles.profileStatLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+              {t('服务器', 'Servers')}
+            </Text>
+            <Text style={[styles.profileStatValue, { color: colors.text, fontSize: fs('sm') }]}>{bot.servers.length}</Text>
           </View>
-          <View style={styles.profileStatCard}>
-            <Text style={styles.profileStatLabel}>{t('连接', 'Protocol')}</Text>
-            <Text style={styles.profileStatValue}>{isConnected ? 'HTTPS' : '-'}</Text>
+          <View style={[styles.profileStatCard, { backgroundColor: colors.surfaceLight }]}>
+            <Text style={[styles.profileStatLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+              {t('连接', 'Protocol')}
+            </Text>
+            <Text style={[styles.profileStatValue, { color: colors.text, fontSize: fs('sm') }]}>
+              {bot.isConnected ? 'HTTPS' : '-'}
+            </Text>
           </View>
-          <View style={styles.profileStatCard}>
-            <Text style={styles.profileStatLabel}>{t('状态', 'State')}</Text>
-            <Text style={styles.profileStatValue}>
-              {botState?.state === 'running' ? t('运行中', 'Running') : t('停止', 'Stopped')}
+          <View style={[styles.profileStatCard, { backgroundColor: colors.surfaceLight }]}>
+            <Text style={[styles.profileStatLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+              {t('模式', 'Mode')}
+            </Text>
+            <Text style={[styles.profileStatValue, { color: colors.text, fontSize: fs('sm') }]}>
+              {dryRunMode ? t('模拟', 'Dry-run') : t('实盘', 'Live')}
             </Text>
           </View>
         </View>
       </View>
 
-      <Text style={styles.sectionLabel}>{t('连接中心', 'CONNECTION')}</Text>
-      <View style={styles.settingsGroup}>
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={toggleConnectForm}>
-          <Ionicons name="link-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('连接 Bot', 'Connect Bot')}</Text>
-            <Text style={styles.settingSubtitle}>
-              {t('添加或更新服务器连接', 'Add or update a server connection')}
-            </Text>
-          </View>
-          <Ionicons
-            name={showConnectForm ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color={Colors.dark.textMuted}
-          />
-        </Pressable>
-
-        <View style={styles.settingDivider} />
-
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={toggleServerManager}>
-          <Ionicons name="server-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('多服务器切换', 'Server Manager')}</Text>
-            <Text style={styles.settingSubtitle}>
-              {t('查看、切换和删除已保存连接', 'View, switch, and remove saved connections')}
-            </Text>
-          </View>
-          <Ionicons
-            name={showServerManager ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color={Colors.dark.textMuted}
-          />
-        </Pressable>
-      </View>
-
-      {showConnectForm && (
-        <View style={styles.connectForm}>
-          <TextInput
-            style={styles.input}
-            value={formUrl}
-            onChangeText={setFormUrl}
-            placeholder="https://your-domain/freqtrade"
-            placeholderTextColor={Colors.dark.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TextInput
-            style={styles.input}
-            value={formUser}
-            onChangeText={setFormUser}
-            placeholder={t('用户名', 'Username')}
-            placeholderTextColor={Colors.dark.textMuted}
-            autoCapitalize="none"
-          />
-          <TextInput
-            style={styles.input}
-            value={formPass}
-            onChangeText={setFormPass}
-            placeholder={t('密码', 'Password')}
-            placeholderTextColor={Colors.dark.textMuted}
-            secureTextEntry
-          />
-          <TouchableOpacity
-            style={[styles.primaryButton, (!canSubmitConnectForm || isConnectingForm) && styles.buttonDisabled]}
-            onPress={handleConnect}
-            disabled={!canSubmitConnectForm || isConnectingForm}
-            activeOpacity={0.8}
-          >
-            {isConnectingForm ? <ActivityIndicator color="#FFF" size="small" /> : null}
-            <Text style={styles.primaryButtonText}>
-              {isConnectingForm ? t('连接中...', 'Connecting...') : t('连接', 'Connect')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {showServerManager && (
+      {section(t('连接', 'CONNECTION'),
         <>
-          <Text style={styles.sectionLabel}>{t('服务器列表', 'SERVERS')}</Text>
-          <View style={styles.settingsGroup}>
-            {servers.length === 0 ? (
-              <View style={styles.settingRow}>
-                <Ionicons name="cloud-offline-outline" size={18} color={Colors.dark.textMuted} />
-                <View style={styles.settingInfo}>
-                  <Text style={styles.settingTitle}>{t('暂无服务器配置', 'No saved servers')}</Text>
-                  <Text style={styles.settingSubtitle}>{t('先添加一个连接后再切换。', 'Add a connection before switching.')}</Text>
+          {row('link-outline', t('连接 Bot', 'Connect Bot'), t('添加或更新服务器连接', 'Add or update a server connection'), <Ionicons name={showConnect ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />, async () => {
+            await haptics.light();
+            setShowConnect((prev) => !prev);
+          })}
+          {showConnect ? (
+            <View style={styles.form}>
+              <TextInput style={[styles.input, { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder, color: colors.text, fontSize: fs('md') }]} value={formUrl} onChangeText={setFormUrl} placeholder="https://your-domain/freqtrade" placeholderTextColor={colors.textMuted} />
+              <TextInput style={[styles.input, { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder, color: colors.text, fontSize: fs('md') }]} value={formUser} onChangeText={setFormUser} placeholder={t('用户名', 'Username')} placeholderTextColor={colors.textMuted} />
+              <TextInput style={[styles.input, { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder, color: colors.text, fontSize: fs('md') }]} value={formPass} onChangeText={setFormPass} placeholder={t('密码', 'Password')} placeholderTextColor={colors.textMuted} secureTextEntry />
+              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={handleConnect} disabled={isConnecting}>
+                {isConnecting ? <ActivityIndicator color="#FFF" /> : null}
+                <Text style={[styles.primaryText, { fontSize: fs('md') }]}>{isConnecting ? t('连接中...', 'Connecting...') : t('连接', 'Connect')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {row('server-outline', t('服务器管理', 'Server Manager'), t('查看、切换和删除已保存连接', 'View, switch, and remove saved connections'), <Ionicons name={showServers ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />, async () => {
+            await haptics.light();
+            setShowServers((prev) => !prev);
+          })}
+          {showServers ? bot.servers.map((item) => (
+            <View key={item.id} style={[styles.serverItem, { borderTopColor: colors.surfaceBorder }]}>
+              <Pressable onPress={async () => {
+                if (switchingServer || item.id === bot.activeServerId) return;
+                await haptics.light();
+                setSwitchingServer(item.id);
+                try {
+                  const success = await bot.switchServer(item.id);
+                  await (success ? haptics.success() : haptics.error());
+                } finally {
+                  setSwitchingServer(null);
+                }
+              }}>
+                <View style={styles.serverLine}>
+                  <Text style={[styles.title, { color: colors.text, fontSize: fs('sm') }]}>{item.name}</Text>
+                  {switchingServer === item.id ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={[styles.subtitle, { color: item.id === bot.activeServerId ? colors.primary : colors.textMuted, fontSize: fs('xs') }]}>{item.id === bot.activeServerId ? t('当前', 'Current') : t('切换', 'Switch')}</Text>}
                 </View>
-              </View>
-            ) : (
-              servers.map((item, index) => {
-                const isActive = item.id === activeServerId;
-                const isSwitching = isSwitchingServerId === item.id;
-                const isDeleting = isDeletingServerId === item.id;
-
-                return (
-                  <View key={item.id}>
-                    <Pressable
-                      style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]}
-                      onPress={() => handleSwitchServer(item.id)}
-                      disabled={isSwitching || isDeleting}
-                    >
-                      <Ionicons
-                        name={isActive ? 'radio-button-on-outline' : 'radio-button-off-outline'}
-                        size={18}
-                        color={isActive ? Colors.dark.primary : Colors.dark.textMuted}
-                      />
-                      <View style={styles.settingInfo}>
-                        <Text style={styles.settingTitle}>{item.name}</Text>
-                        <Text style={styles.settingSubtitle}>{item.url}</Text>
-                      </View>
-                      {isSwitching ? (
-                        <ActivityIndicator size="small" color={Colors.dark.primary} />
-                      ) : isActive ? (
-                        <Text style={styles.serverStateText}>{t('当前', 'Current')}</Text>
-                      ) : (
-                        <Text style={styles.serverStateText}>{t('切换', 'Switch')}</Text>
-                      )}
-                    </Pressable>
-
-                    <View style={styles.serverActionRow}>
-                      <TouchableOpacity
-                        style={[styles.serverActionBtn, isDeleting && styles.buttonDisabled]}
-                        onPress={() => handleDeleteServer(item.id, item.name)}
-                        disabled={isDeleting}
-                        activeOpacity={0.75}
-                      >
-                        {isDeleting ? (
-                          <ActivityIndicator size="small" color={Colors.dark.loss} />
-                        ) : (
-                          <Ionicons name="trash-outline" size={14} color={Colors.dark.loss} />
-                        )}
-                        <Text style={styles.serverDeleteText}>{t('删除', 'Remove')}</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {index < servers.length - 1 ? <View style={styles.settingDivider} /> : null}
-                  </View>
-                );
-              })
-            )}
-          </View>
-        </>
+                <Text style={[styles.subtitle, { color: colors.textSecondary, fontSize: fs('xs') }]}>{item.url}</Text>
+              </Pressable>
+              <TouchableOpacity style={[styles.inlineButton, { backgroundColor: colors.lossBg }]} onPress={() => Alert.alert(t('删除服务器', 'Remove Server'), language === 'en' ? `Remove "${item.name}"?` : `确定删除 “${item.name}” 吗？`, [{ text: t('取消', 'Cancel'), style: 'cancel' }, { text: t('删除', 'Remove'), style: 'destructive', onPress: async () => { await haptics.medium(); setDeletingServer(item.id); try { await bot.removeServer(item.id); await haptics.success(); } finally { setDeletingServer(null); } } }])}>
+                {deletingServer === item.id ? <ActivityIndicator size="small" color={colors.loss} /> : <Text style={[styles.inlineButtonText, { color: colors.loss, fontSize: fs('xs') }]}>{t('删除', 'Remove')}</Text>}
+              </TouchableOpacity>
+            </View>
+          )) : null}
+        </>,
       )}
 
-      <Text style={styles.sectionLabel}>{t('Bot 控制', 'BOT CONTROLS')}</Text>
-      <View style={styles.controlRow}>
-        <TouchableOpacity
-          style={[
-            styles.controlActionBtn,
-            botState?.state === 'running' && styles.controlActionBtnActive,
-            (isStartingBot || isStoppingBot || botState?.state === 'running') && styles.buttonDisabled,
-          ]}
-          onPress={handleStartBot}
-          disabled={isStartingBot || isStoppingBot || botState?.state === 'running'}
-          activeOpacity={0.75}
-        >
-          {isStartingBot ? (
-            <ActivityIndicator size="small" color={Colors.dark.primary} />
-          ) : (
-            <Ionicons name="play" size={18} color={Colors.dark.primary} />
-          )}
-          <Text style={[styles.controlActionText, { color: Colors.dark.primary }]}>
-            {isStartingBot ? t('启动中...', 'Starting...') : t('启动 Bot', 'Start Bot')}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.controlActionBtn,
-            styles.controlDangerBtn,
-            (isStartingBot || isStoppingBot || botState?.state !== 'running') && styles.buttonDisabled,
-          ]}
-          onPress={handleStopBot}
-          disabled={isStartingBot || isStoppingBot || botState?.state !== 'running'}
-          activeOpacity={0.75}
-        >
-          {isStoppingBot ? (
-            <ActivityIndicator size="small" color={Colors.dark.loss} />
-          ) : (
-            <Ionicons name="stop" size={18} color={Colors.dark.loss} />
-          )}
-          <Text style={[styles.controlActionText, { color: Colors.dark.loss }]}>
-            {isStoppingBot ? t('停止中...', 'Stopping...') : t('停止 Bot', 'Stop Bot')}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.sectionLabel}>{t('通知', 'NOTIFICATIONS')}</Text>
-      <View style={styles.settingsGroup}>
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('交易提醒', 'Trade Alerts')}</Text>
+      {section(t('Bot 控制', 'BOT CONTROLS'),
+        <>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primaryBg, borderColor: colors.primary }]} onPress={async () => { await haptics.medium(); const success = await bot.startBot(); await (success ? haptics.success() : haptics.error()); }} disabled={bot.botState?.state === 'running'}>
+              <Text style={[styles.actionText, { color: colors.primary, fontSize: fs('sm') }]}>{t('启动 Bot', 'Start Bot')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.lossBg, borderColor: colors.loss }]} onPress={async () => { await haptics.medium(); const success = await bot.stopBot(); await (success ? haptics.success() : haptics.error()); }} disabled={bot.botState?.state !== 'running'}>
+              <Text style={[styles.actionText, { color: colors.loss, fontSize: fs('sm') }]}>{t('停止 Bot', 'Stop Bot')}</Text>
+            </TouchableOpacity>
           </View>
-          <Switch value={tradeAlerts} onValueChange={setTradeAlerts} trackColor={{ false: Colors.dark.surfaceLight, true: Colors.dark.primary }} />
-        </View>
-        <View style={styles.settingDivider} />
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('价格阈值提醒', 'Price Threshold Alerts')}</Text>
-          </View>
-          <Switch value={priceThresholds} onValueChange={setPriceThresholds} trackColor={{ false: Colors.dark.surfaceLight, true: Colors.dark.primary }} />
-        </View>
-        <View style={styles.settingDivider} />
-        <View style={styles.settingRow}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('系统提醒', 'System Alerts')}</Text>
-          </View>
-          <Switch value={systemAlerts} onValueChange={setSystemAlerts} trackColor={{ false: Colors.dark.surfaceLight, true: Colors.dark.primary }} />
-        </View>
-      </View>
-
-      <Text style={styles.sectionLabel}>{t('策略与外观', 'PREFERENCES')}</Text>
-      <View style={styles.settingsGroup}>
-        <View style={styles.settingRow}>
-          <Ionicons name="flask-outline" size={18} color={Colors.dark.warning} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('模拟交易模式', 'Dry Run Mode')}</Text>
-          </View>
-          <Switch value={dryRunMode} onValueChange={setDryRunMode} trackColor={{ false: Colors.dark.surfaceLight, true: Colors.dark.primary }} />
-        </View>
-        <View style={styles.settingDivider} />
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={() => router.push('/theme-settings')}>
-          <Ionicons name="moon-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('主题', 'Theme')}</Text>
-            <Text style={styles.settingSubtitle}>
-              {themeMode === 'amoled'
-                ? t('当前为纯黑主题', 'Current: AMOLED Black')
-                : t('当前为深色主题', 'Current: Deep Dark')}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
-        </Pressable>
-        <View style={styles.settingDivider} />
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={() => router.push('/font-settings')}>
-          <Ionicons name="text-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('字体设置', 'Font Settings')}</Text>
-            <Text style={styles.settingSubtitle}>
-              {{
-                small: t('当前为紧凑字号', 'Current: Compact'),
-                normal: t('当前为标准字号', 'Current: Standard'),
-                large: t('当前为舒适字号', 'Current: Comfort'),
-              }[fontScale]}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
-        </Pressable>
-        <View style={styles.settingDivider} />
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={() => router.push('/language-settings')}>
-          <Ionicons name="language-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('语言设置', 'Language')}</Text>
-            <Text style={styles.settingSubtitle}>{language === 'en' ? 'English' : '简体中文'}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={Colors.dark.textMuted} />
-        </Pressable>
-      </View>
-
-      <Text style={styles.sectionLabel}>{t('数据与存储', 'DATA')}</Text>
-      <View style={styles.settingsGroup}>
-        <Pressable style={({ pressed }) => [styles.settingRow, pressed && styles.settingRowPressed]} onPress={handleClearCache} disabled={isClearingCache}>
-          <Ionicons name="trash-outline" size={18} color={Colors.dark.primary} />
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{t('清理缓存', 'Clear Cache')}</Text>
-          </View>
-          {isClearingCache ? (
-            <ActivityIndicator size="small" color={Colors.dark.primary} />
-          ) : (
-            <Text style={styles.settingSubtitle}>{t('就绪', 'Ready')}</Text>
-          )}
-        </Pressable>
-      </View>
-
-      {isConnected && (
-        <TouchableOpacity style={styles.logoutButton} onPress={handleDisconnect} activeOpacity={0.8}>
-          <Text style={styles.logoutButtonText}>{t('退出登录', 'Logout')}</Text>
-        </TouchableOpacity>
+        </>,
       )}
 
-      <View style={styles.versionSection}>
-        <Text style={styles.versionLabel}>{t('Freqtrade 移动端', 'Freqtrade Mobile')}</Text>
-        <Text style={styles.versionNumber}>v1.0.0</Text>
-      </View>
+      {section(t('通知', 'NOTIFICATIONS'),
+        <>
+          {row('notifications-outline', t('交易提醒', 'Trade Alerts'), notifications.permissionGranted ? t('系统通知已授权', 'Notification permission granted') : t('系统通知尚未授权', 'Notification permission pending'), renderSwitch(notifications.tradeAlerts, (value) => handleNotification(value, notifications.setTradeAlerts, t('交易提醒', 'trade alerts'))))}
+          {row('stats-chart-outline', t('价格阈值提醒', 'Price Threshold Alerts'), t('当前仅保存开关，后续支持自定义价格提醒。', 'Only the toggle is saved for now. Custom price alerts are coming next.'), renderSwitch(notifications.priceThresholdAlerts, (value) => handleNotification(value, notifications.setPriceThresholdAlerts, t('价格阈值提醒', 'price threshold alerts'))))}
+          {row('radio-outline', t('系统提醒', 'System Alerts'), null, renderSwitch(notifications.systemAlerts, (value) => handleNotification(value, notifications.setSystemAlerts, t('系统提醒', 'system alerts'))))}
+        </>,
+      )}
 
-      <View style={{ height: 48 }} />
+      {section(t('偏好', 'PREFERENCES'),
+        <>
+          {row(
+            'flask-outline',
+            t('模拟交易模式', 'Dry Run Mode'),
+            !bot.isConnected
+              ? t('连接后才可切换', 'Connect before changing this mode')
+              : dryRunMode
+                ? liveReady
+                  ? t('当前为模拟盘，可切到实盘', 'Dry-run active. Live mode is available.')
+                  : `${t('当前为模拟盘，实盘不可用', 'Dry-run active. Live mode is blocked.')}${liveBlockers.length ? `: ${liveBlockers.join(', ')}` : ''}`
+                : t('当前服务器真实状态：实盘', 'Current server state: live'),
+            renderSwitch(
+              dryRunMode,
+              handleDryRunToggle,
+              !bot.isConnected || isTogglingDryRun || (dryRunMode && !liveReady),
+            ),
+          )}
+          {row('moon-outline', t('主题', 'Theme'), themeMode === 'light' ? t('当前：浅色', 'Current: Light') : t('当前：深色', 'Current: Dark'), <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />, async () => { await haptics.selection(); router.push('/theme-settings'); })}
+          {row('text-outline', t('字体设置', 'Font Settings'), { small: t('当前：紧凑', 'Current: Compact'), normal: t('当前：标准', 'Current: Standard'), large: t('当前：舒适', 'Current: Comfort') }[fontScale], <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />, async () => { await haptics.selection(); router.push('/font-settings'); })}
+          {row('language-outline', t('语言设置', 'Language'), language === 'en' ? 'English' : '简体中文', <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />, async () => { await haptics.selection(); router.push('/language-settings'); })}
+        </>,
+      )}
+
+      {section(t('数据', 'DATA'),
+        <>
+          {row('trash-outline', t('清理缓存', 'Clear Cache'), t('刷新本地状态', 'Refresh local state'), isConnecting ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={[styles.subtitle, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('就绪', 'Ready')}</Text>, async () => { await haptics.light(); await bot.refreshAll(); await haptics.success(); })}
+        </>,
+      )}
+
+      {bot.isConnected ? (
+        <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.lossBg, borderColor: colors.loss }]} onPress={() => Alert.alert(t('退出连接', 'Disconnect'), t('确定要断开当前 Bot 连接吗？', 'Disconnect from the current bot?'), [{ text: t('取消', 'Cancel'), style: 'cancel' }, { text: t('断开', 'Disconnect'), style: 'destructive', onPress: async () => { await haptics.medium(); await bot.disconnect(); await haptics.success(); } }])}>
+          <Text style={[styles.actionText, { color: colors.loss, fontSize: fs('sm') }]}>{t('退出登录', 'Logout')}</Text>
+        </TouchableOpacity>
+      ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  content: {
-    padding: Spacing.lg,
-    paddingBottom: 120,
-  },
-  profileCard: {
-    backgroundColor: Colors.dark.surface,
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xxl,
-  },
-  profileTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
+  container: { flex: 1 },
+  content: { padding: Spacing.lg, paddingBottom: 120, gap: Spacing.lg },
+  profileCard: { borderWidth: 1, borderRadius: BorderRadius.xl, padding: Spacing.lg, gap: Spacing.lg },
+  profileTopRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   avatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: Colors.dark.primaryBg,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.dark.primary,
   },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    color: Colors.dark.text,
-    fontSize: FontSize.xl,
-    fontWeight: '700',
-  },
-  profileSubtitle: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.sm,
-    marginTop: 4,
-  },
+  profileInfo: { flex: 1 },
+  profileName: { fontWeight: '700' },
+  profileSubtitle: { marginTop: 4 },
   statusBadge: {
-    backgroundColor: Colors.dark.primaryBg,
     borderRadius: BorderRadius.full,
     paddingHorizontal: Spacing.md,
     paddingVertical: 6,
   },
-  statusBadgeText: {
-    color: Colors.dark.primary,
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-  },
-  profileStatsRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginTop: Spacing.lg,
-  },
+  statusBadgeText: { fontWeight: '700' },
+  profileStatsRow: { flexDirection: 'row', gap: Spacing.sm },
   profileStatCard: {
     flex: 1,
-    backgroundColor: Colors.dark.surfaceLight,
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.sm,
   },
-  profileStatLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  profileStatValue: {
-    color: Colors.dark.text,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  sectionLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    letterSpacing: 1.2,
-    marginBottom: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  settingsGroup: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.xl,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    overflow: 'hidden',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.lg,
-  },
-  settingRowPressed: {
-    backgroundColor: Colors.dark.surfaceLight,
-  },
-  settingInfo: {
-    flex: 1,
-  },
-  settingTitle: {
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
-    fontWeight: '600',
-  },
-  settingSubtitle: {
-    color: Colors.dark.textSecondary,
-    fontSize: FontSize.xs,
-    marginTop: 2,
-  },
-  settingDivider: {
-    height: 1,
-    backgroundColor: Colors.dark.surfaceBorder,
-    marginLeft: 52,
-  },
-  connectForm: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-    gap: Spacing.md,
-  },
-  input: {
-    backgroundColor: Colors.dark.surfaceLight,
-    borderWidth: 1,
-    borderColor: Colors.dark.surfaceBorder,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    color: Colors.dark.text,
-    fontSize: FontSize.md,
-  },
-  primaryButton: {
-    backgroundColor: Colors.dark.primary,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
+  profileStatLabel: { textAlign: 'center', marginBottom: 4 },
+  profileStatValue: { fontWeight: '700', textAlign: 'center' },
+  sectionWrap: { gap: Spacing.sm },
+  sectionLabel: { fontWeight: '700', letterSpacing: 1.1 },
+  card: { borderWidth: 1, borderRadius: BorderRadius.xl, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.lg },
+  info: { flex: 1 },
+  title: { fontWeight: '700' },
+  subtitle: { marginTop: 2 },
+  form: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg, gap: Spacing.md },
+  input: { borderWidth: 1, borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, paddingVertical: Spacing.md },
+  primaryButton: { borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: Spacing.sm },
+  primaryText: { color: '#FFF', fontWeight: '700' },
+  serverItem: { borderTopWidth: 1, padding: Spacing.lg, gap: Spacing.sm },
+  serverLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.md },
+  inlineButton: { alignSelf: 'flex-end', paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: BorderRadius.full },
+  inlineButtonText: { fontWeight: '700' },
+  actionRow: { flexDirection: 'row', gap: Spacing.sm, padding: Spacing.lg },
+  actionButton: { flex: 1, borderWidth: 1, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center' },
+  actionText: { fontWeight: '700' },
+  logoutButton: { borderWidth: 1, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center' },
+  togglePressable: { paddingLeft: Spacing.sm },
+  toggleTrack: {
+    width: 38,
+    height: 22,
+    borderRadius: 11,
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: Spacing.sm,
   },
-  primaryButtonText: {
-    color: '#FFF',
-    fontSize: FontSize.md,
-    fontWeight: '700',
+  toggleThumb: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    top: 2,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  serverActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
-  },
-  serverActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.dark.surfaceLight,
-  },
-  serverDeleteText: {
-    color: Colors.dark.loss,
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-  },
-  serverStateText: {
-    color: Colors.dark.primary,
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-  },
-  controlRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  controlActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.dark.primary,
-    backgroundColor: Colors.dark.primaryBg,
-    paddingVertical: Spacing.md,
-  },
-  controlDangerBtn: {
-    borderColor: Colors.dark.loss,
-    backgroundColor: Colors.dark.lossBg,
-  },
-  controlActionBtnActive: {
-    borderColor: Colors.dark.primary,
-  },
-  controlActionText: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-  logoutButton: {
-    backgroundColor: Colors.dark.lossBg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.dark.loss,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.md,
-  },
-  logoutButtonText: {
-    color: Colors.dark.loss,
-    fontSize: FontSize.md,
-    fontWeight: '700',
-  },
-  versionSection: {
-    alignItems: 'center',
-    marginTop: Spacing.xxl,
-    gap: Spacing.xs,
-  },
-  versionLabel: {
-    color: Colors.dark.textMuted,
-    fontSize: FontSize.sm,
-  },
-  versionNumber: {
-    color: Colors.dark.primary,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
+  toggleDisabled: { opacity: 0.7 },
+  togglePressed: { opacity: 0.92 },
 });

@@ -24,12 +24,36 @@ import {
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
+import { haptics } from '@/src/utils/haptics';
 import { toDisplayProfitPercent } from '../../src/utils/profit';
 
 type TabType = 'open' | 'history';
 type EntrySide = 'long' | 'short';
 
 const fallbackPairs = ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT'];
+const pairStakeHints: Record<string, { min: number; note?: { zh: string; en: string } }> = {
+  'BTC/USDT:USDT': {
+    min: 10,
+    note: {
+      zh: '若该币对已有持仓，将无法重复开仓。',
+      en: 'You cannot open another position if this pair is already active.',
+    },
+  },
+  'ETH/USDT:USDT': {
+    min: 26,
+    note: {
+      zh: 'ETH 当前建议至少 26 USDT，10 USDT 往往会失败。',
+      en: 'ETH currently needs about 26+ USDT. 10 USDT often fails.',
+    },
+  },
+  'SOL/USDT:USDT': {
+    min: 10,
+    note: {
+      zh: 'SOL 当前用 10 USDT 通常可以下单。',
+      en: 'SOL usually works with 10 USDT in the current setup.',
+    },
+  },
+};
 
 export default function TradesScreen() {
   const router = useRouter();
@@ -66,7 +90,57 @@ export default function TradesScreen() {
     const source = whitelist.length > 0 ? whitelist : fallbackPairs;
     return [...source].sort((a, b) => Number(blockedPairs.has(a)) - Number(blockedPairs.has(b)));
   }, [blockedPairs, whitelist]);
+  const sortedTradeHistory = useMemo(() => {
+    const toTs = (value?: string) => {
+      if (!value) return 0;
+      const parsed = new Date(value).getTime();
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    return [...tradeHistory].sort((a, b) => {
+      const aTs = toTs(a.close_date ?? a.open_date);
+      const bTs = toTs(b.close_date ?? b.open_date);
+      return bTs - aTs;
+    });
+  }, [tradeHistory]);
   const hasSavedConnection = !!server || servers.length > 0;
+  const defaultStakeAmount = 120;
+  const selectedPairHint = entryPair ? pairStakeHints[entryPair] : undefined;
+  const dynamicRuleText = useMemo(() => {
+    if (!entryPair) {
+      return language === 'en'
+        ? `Leave it empty to use the bot default stake (${defaultStakeAmount} USDT). Choose a pair to see its current amount rule.`
+        : `留空会使用机器人默认下单金额（当前 ${defaultStakeAmount} USDT）。选择币对后会显示该币对的金额规则。`;
+    }
+
+    const blocked = blockedPairs.has(entryPair);
+    const minText =
+      typeof selectedPairHint?.min === 'number'
+        ? language === 'en'
+          ? `Suggested minimum: ${selectedPairHint.min} USDT.`
+          : `建议最小金额：${selectedPairHint.min} USDT。`
+        : language === 'en'
+          ? `Leave it empty to use the default ${defaultStakeAmount} USDT stake.`
+          : `留空会使用默认 ${defaultStakeAmount} USDT 下单。`;
+
+    const blockedText = blocked
+      ? language === 'en'
+        ? `${entryPair} already has an open position, so entry is blocked right now.`
+        : `${entryPair} 当前已有持仓，暂时不能重复开仓。`
+      : language === 'en'
+        ? `Leave it empty to use the bot default stake (${defaultStakeAmount} USDT).`
+        : `留空会使用机器人默认下单金额（当前 ${defaultStakeAmount} USDT）。`;
+
+    const noteText = selectedPairHint?.note
+      ? language === 'en'
+        ? selectedPairHint.note.en
+        : selectedPairHint.note.zh
+      : language === 'en'
+        ? 'If the amount is too small for the exchange minimum, the order will fail.'
+        : '如果金额低于交易所最小下单要求，这笔单会失败。';
+
+    return `${blockedText} ${minText} ${noteText}`;
+  }, [blockedPairs, defaultStakeAmount, entryPair, language, selectedPairHint]);
 
   const onRefresh = useCallback(async () => {
     await refreshAll();
@@ -107,6 +181,7 @@ export default function TradesScreen() {
   };
 
   const openEntryModal = () => {
+    void haptics.selection();
     setEntryPair(selectablePairs.find((pair) => !blockedPairs.has(pair)) ?? selectablePairs[0] ?? '');
     setEntryStakeAmount('');
     setEntrySide('long');
@@ -115,6 +190,7 @@ export default function TradesScreen() {
 
   const closeEntryModal = () => {
     if (isSubmittingEntry) return;
+    void haptics.light();
     setEntryModalVisible(false);
   };
 
@@ -135,8 +211,10 @@ export default function TradesScreen() {
 
     setSubmittingEntry(true);
     try {
+      await haptics.medium();
       const success = await forceEntry(normalizedPair, entrySide, stakeAmount);
       if (!success) {
+        await haptics.error();
         const latestError = useBotStore.getState().error;
         Alert.alert(
           t('开仓失败', 'Entry failed'),
@@ -150,6 +228,7 @@ export default function TradesScreen() {
       }
 
       setEntryModalVisible(false);
+      await haptics.success();
       Alert.alert(
         t('模拟单已提交', 'Simulated entry sent'),
         language === 'en'
@@ -171,11 +250,15 @@ export default function TradesScreen() {
           text: t('确认', 'Confirm'),
           style: 'destructive',
           onPress: async () => {
+            await haptics.medium();
             setClosingTradeId(tradeId);
             try {
               const success = await forceExit(tradeId);
               if (success) {
+                await haptics.success();
                 Alert.alert(t('平仓成功', 'Closed'));
+              } else {
+                await haptics.error();
               }
             } finally {
               setClosingTradeId(null);
@@ -218,7 +301,10 @@ export default function TradesScreen() {
         <View style={[styles.segmentContainer, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
           <TouchableOpacity
             style={[styles.segmentBtn, activeTab === 'open' && { backgroundColor: colors.surfaceLight }]}
-            onPress={() => setActiveTab('open')}
+            onPress={async () => {
+              await haptics.selection();
+              setActiveTab('open');
+            }}
           >
             <Text
               style={[
@@ -239,7 +325,10 @@ export default function TradesScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.segmentBtn, activeTab === 'history' && { backgroundColor: colors.surfaceLight }]}
-            onPress={() => setActiveTab('history')}
+            onPress={async () => {
+              await haptics.selection();
+              setActiveTab('history');
+            }}
           >
             <Text
               style={[
@@ -394,7 +483,10 @@ export default function TradesScreen() {
                     <View style={styles.tradeActions}>
                       <TouchableOpacity
                         style={[styles.secondaryButton, { borderColor: colors.surfaceBorder }]}
-                        onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
+                        onPress={async () => {
+                          await haptics.selection();
+                          router.push(`/trade/${trade.trade_id}` as any);
+                        }}
                       >
                         <Text style={[styles.secondaryButtonText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
                           {t('详情', 'Details')}
@@ -426,10 +518,10 @@ export default function TradesScreen() {
           <>
             <View style={[styles.historySummary, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
               <Text style={[styles.historySummaryText, { color: colors.textSecondary, fontSize: fs('sm') }]}>
-                {language === 'en' ? `${tradeHistory.length} records` : `共 ${tradeHistory.length} 条记录`}
+                {language === 'en' ? `${sortedTradeHistory.length} records` : `共 ${sortedTradeHistory.length} 条记录`}
               </Text>
             </View>
-            {tradeHistory.map((trade) => {
+            {sortedTradeHistory.map((trade) => {
               const isProfit = (trade.profit_abs ?? 0) >= 0;
               const profitColor = isProfit ? colors.profit : colors.loss;
               const profitPct = toDisplayProfitPercent(trade.profit_pct, trade.profit_ratio);
@@ -437,7 +529,10 @@ export default function TradesScreen() {
                 <Pressable
                   key={trade.trade_id}
                   style={[styles.historyCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}
-                  onPress={() => router.push(`/trade/${trade.trade_id}` as any)}
+                  onPress={async () => {
+                    await haptics.selection();
+                    router.push(`/trade/${trade.trade_id}` as any);
+                  }}
                 >
                   <View style={styles.historyHeader}>
                     <Text style={[styles.historyPair, { color: colors.text, fontSize: fs('md') }]}>
@@ -485,6 +580,15 @@ export default function TradesScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={[styles.ruleCard, { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder }]}>
+              <Text style={[styles.ruleTitle, { color: colors.text, fontSize: fs('sm') }]}>
+                {t('金额规则', 'Amount Rules')}
+              </Text>
+              <Text style={[styles.ruleText, { color: colors.textSecondary, fontSize: fs('xs') }]}>
+                {dynamicRuleText}
+              </Text>
+            </View>
+
             <View style={styles.sideSelector}>
               <TouchableOpacity
                 style={[
@@ -492,7 +596,10 @@ export default function TradesScreen() {
                   { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
                   entrySide === 'long' && { backgroundColor: colors.profitBg, borderColor: colors.profit },
                 ]}
-                onPress={() => setEntrySide('long')}
+                onPress={async () => {
+                  await haptics.selection();
+                  setEntrySide('long');
+                }}
               >
                 <Text style={[styles.sideButtonText, { color: colors.text, fontSize: fs('sm') }]}>
                   {t('做多', 'Long')}
@@ -504,7 +611,10 @@ export default function TradesScreen() {
                   { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
                   entrySide === 'short' && { backgroundColor: colors.lossBg, borderColor: colors.loss },
                 ]}
-                onPress={() => setEntrySide('short')}
+                onPress={async () => {
+                  await haptics.selection();
+                  setEntrySide('short');
+                }}
               >
                 <Text style={[styles.sideButtonText, { color: colors.text, fontSize: fs('sm') }]}>
                   {t('做空', 'Short')}
@@ -524,7 +634,10 @@ export default function TradesScreen() {
                       { borderColor: colors.surfaceBorder, backgroundColor: colors.surfaceLight },
                       selected && { backgroundColor: colors.primaryBg, borderColor: colors.primary },
                     ]}
-                    onPress={() => setEntryPair(pair)}
+                    onPress={async () => {
+                      await haptics.selection();
+                      setEntryPair(pair);
+                    }}
                   >
                     <Text
                       style={[
@@ -544,7 +657,15 @@ export default function TradesScreen() {
               value={entryStakeAmount}
               onChangeText={setEntryStakeAmount}
               keyboardType="decimal-pad"
-              placeholder={language === 'en' ? 'Stake amount (optional)' : '下单金额（可选）'}
+              placeholder={
+                language === 'en'
+                  ? typeof defaultStakeAmount === 'number'
+                    ? `Stake amount (optional, default ${defaultStakeAmount})`
+                    : 'Stake amount (optional)'
+                  : typeof defaultStakeAmount === 'number'
+                    ? `下单金额（可选，默认 ${defaultStakeAmount}）`
+                    : '下单金额（可选）'
+              }
               placeholderTextColor={colors.textMuted}
               style={[
                 styles.input,
@@ -712,6 +833,14 @@ const styles = StyleSheet.create({
   modalHeaderText: { flex: 1 },
   modalTitle: { fontWeight: '800' },
   modalSubtitle: { marginTop: 4, lineHeight: 20 },
+  ruleCard: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: 6,
+  },
+  ruleTitle: { fontWeight: '700' },
+  ruleText: { lineHeight: 18 },
   sideSelector: { flexDirection: 'row', gap: Spacing.sm },
   sideButton: {
     flex: 1,

@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { G, Line, Rect, Text as SvgText } from 'react-native-svg';
 
-import { BorderRadius, Colors, FontSize, Spacing } from '@/constants/Colors';
+import { BorderRadius, Colors, FontSize, Spacing, getThemeColors } from '@/constants/Colors';
 import { CandleData } from '@/src/api/freqtradeClient';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 
 interface CandleChartProps {
   candles: CandleData[];
@@ -21,9 +22,21 @@ const CANDLE_WIDTH = 7;
 const CANDLE_GAP = 3;
 const CANDLE_STEP = CANDLE_WIDTH + CANDLE_GAP;
 const PADDING_TOP = 28;
-const PADDING_BOTTOM = 28;
+const PADDING_BOTTOM = 34;
 const PRICE_AXIS_WIDTH = 55;
-const PADDING_RIGHT = 20;
+const MIN_LABEL_GAP = 44;
+
+const timeframeToMs = (timeframe?: string) => {
+  if (!timeframe) return 60 * 60 * 1000;
+  const unit = timeframe.slice(-1);
+  const count = Number(timeframe.slice(0, -1));
+  if (!Number.isFinite(count)) return 60 * 60 * 1000;
+  if (unit === 'm') return count * 60 * 1000;
+  if (unit === 'h') return count * 60 * 60 * 1000;
+  if (unit === 'd') return count * 24 * 60 * 60 * 1000;
+  if (unit === 'w') return count * 7 * 24 * 60 * 60 * 1000;
+  return 60 * 60 * 1000;
+};
 
 const formatTime = (ts: number, timeframe?: string): string => {
   const date = ts > 1e12 ? new Date(ts) : new Date(ts * 1000);
@@ -53,13 +66,15 @@ export default function CandleChart({
   errorMessage,
   timeframe,
 }: CandleChartProps) {
+  const themeMode = useAppearanceStore((s) => s.themeMode);
+  const colors = getThemeColors(themeMode);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const screenWidth = Dimensions.get('window').width;
   const containerWidth = screenWidth - Spacing.lg * 2;
   const drawHeight = height - PADDING_TOP - PADDING_BOTTOM;
-  const totalCandleWidth = candles.length * CANDLE_STEP + PADDING_RIGHT;
+  const totalCandleWidth = candles.length * CANDLE_STEP;
   const scrollContentWidth = Math.max(totalCandleWidth, containerWidth - PRICE_AXIS_WIDTH);
 
   useEffect(() => {
@@ -116,33 +131,57 @@ export default function CandleChart({
       };
     });
 
-    const step = 7;
+    const labelStep = Math.max(1, Math.ceil(MIN_LABEL_GAP / CANDLE_STEP));
     const timeLabels = [];
-    for (let i = 0; i < candles.length; i += step) {
-      if (i > candles.length - 2) break;
-      timeLabels.push({
-        x: bars[i].x + CANDLE_WIDTH / 2,
-        label: formatTime(candles[i].date, timeframe),
-      });
+    for (let i = 0; i < candles.length; i += labelStep) {
+      const x = bars[i].x + CANDLE_WIDTH / 2;
+      const prevLabel = timeLabels[timeLabels.length - 1];
+      if (!prevLabel || x - prevLabel.x >= MIN_LABEL_GAP) {
+        timeLabels.push({
+          x,
+          label: formatTime(candles[i].date, timeframe),
+        });
+      }
     }
     const lastIndex = candles.length - 1;
-    timeLabels.push({
-      x: bars[lastIndex].x + CANDLE_WIDTH / 2,
-      label: formatTime(candles[lastIndex].date, timeframe),
-    });
+    const lastLabelX = bars[lastIndex].x + CANDLE_WIDTH / 2;
+    const prevLabel = timeLabels[timeLabels.length - 1];
+    if (!prevLabel || lastLabelX - prevLabel.x >= MIN_LABEL_GAP) {
+      timeLabels.push({
+        x: lastLabelX,
+        label: formatTime(candles[lastIndex].date, timeframe),
+      });
+    } else {
+      timeLabels[timeLabels.length - 1] = {
+        x: lastLabelX,
+        label: formatTime(candles[lastIndex].date, timeframe),
+      };
+    }
+
+    const candleSpanFallback = timeframeToMs(timeframe);
 
     const findMarkerX = (timestamp?: number) => {
       if (!timestamp) return null;
-      let closestIndex = 0;
-      let bestDiff = Math.abs(candles[0].date - timestamp);
-      for (let i = 1; i < candles.length; i++) {
-        const diff = Math.abs(candles[i].date - timestamp);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          closestIndex = i;
+
+      for (let i = 0; i < candles.length; i++) {
+        const candleStart = candles[i].date;
+        const nextCandleStart =
+          i < candles.length - 1 ? candles[i + 1].date : candleStart + candleSpanFallback;
+        const candleSpan = Math.max(nextCandleStart - candleStart, 1);
+        const candleEnd = candleStart + candleSpan;
+
+        if (timestamp >= candleStart && timestamp < candleEnd) {
+          const progress = Math.max(0, Math.min(1, (timestamp - candleStart) / candleSpan));
+          return bars[i].x + progress * CANDLE_STEP + CANDLE_WIDTH / 2;
         }
       }
-      return bars[closestIndex].x + CANDLE_WIDTH / 2;
+
+      if (timestamp < candles[0].date) {
+        return bars[0].x + CANDLE_WIDTH / 2;
+      }
+
+      const lastBar = bars[bars.length - 1];
+      return lastBar.x + CANDLE_WIDTH / 2;
     };
 
     return {
@@ -159,25 +198,25 @@ export default function CandleChart({
 
   if (isLoading) {
     return (
-      <View style={[styles.stateWrap, { height }]}>
-        <ActivityIndicator size="small" color={Colors.dark.primary} />
-        <Text style={styles.stateText}>Loading candles...</Text>
+      <View style={[styles.stateWrap, { height, backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={[styles.stateText, { color: colors.textMuted }]}>Loading candles...</Text>
       </View>
     );
   }
 
   if (errorMessage) {
     return (
-      <View style={[styles.stateWrap, { height }]}>
-        <Text style={styles.errorText}>{errorMessage}</Text>
+      <View style={[styles.stateWrap, { height, backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <Text style={[styles.errorText, { color: colors.warning }]}>{errorMessage}</Text>
       </View>
     );
   }
 
   if (!chartMeta || candles.length === 0) {
     return (
-      <View style={[styles.stateWrap, { height }]}>
-        <Text style={styles.stateText}>No candle data</Text>
+      <View style={[styles.stateWrap, { height, backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+        <Text style={[styles.stateText, { color: colors.textMuted }]}>No candle data</Text>
       </View>
     );
   }
@@ -189,32 +228,32 @@ export default function CandleChart({
 
   return (
     <View style={styles.wrapper}>
-      <View style={[styles.chartContainer, { height }]}>
+      <View style={[styles.chartContainer, { height, backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
         <View style={styles.ohlcOverlay}>
-          <Text style={styles.ohlcText}>
-            <Text style={styles.ohlcLabel}>O </Text>{formatPrice(displayCandle.open)}
-            <Text style={styles.ohlcLabel}> H </Text>{formatPrice(displayCandle.high)}
-            <Text style={styles.ohlcLabel}> L </Text>{formatPrice(displayCandle.low)}
-            <Text style={styles.ohlcLabel}> C </Text>
-            <Text style={{ color: displayCandle.close >= displayCandle.open ? Colors.dark.profit : Colors.dark.loss }}>
+          <Text style={[styles.ohlcText, { color: colors.text }]}>
+            <Text style={[styles.ohlcLabel, { color: colors.textMuted }]}>O </Text>{formatPrice(displayCandle.open)}
+            <Text style={[styles.ohlcLabel, { color: colors.textMuted }]}> H </Text>{formatPrice(displayCandle.high)}
+            <Text style={[styles.ohlcLabel, { color: colors.textMuted }]}> L </Text>{formatPrice(displayCandle.low)}
+            <Text style={[styles.ohlcLabel, { color: colors.textMuted }]}> C </Text>
+            <Text style={{ color: displayCandle.close >= displayCandle.open ? colors.profit : colors.loss }}>
               {formatPrice(displayCandle.close)}
             </Text>
             {selectedIndex !== null ? (
-              <Text style={styles.ohlcLabel}> [{formatTime(displayCandle.date, timeframe)}]</Text>
+              <Text style={[styles.ohlcLabel, { color: colors.textMuted }]}> [{formatTime(displayCandle.date, timeframe)}]</Text>
             ) : null}
           </Text>
         </View>
 
         <View style={styles.chartRow}>
-          <View style={styles.priceAxis}>
+          <View style={[styles.priceAxis, { backgroundColor: colors.surface, borderRightColor: colors.surfaceBorder }]}>
             <Svg width={PRICE_AXIS_WIDTH} height={height}>
               {chartMeta.priceLabels.map((label, index) => (
                 <SvgText
                   key={`price-${index}`}
                   x={PRICE_AXIS_WIDTH - 6}
                   y={label.y + 3}
-                  fill={Colors.dark.textMuted}
-                  fontSize={9}
+                  fill={colors.textMuted}
+                  fontSize={8}
                   fontFamily="SpaceMono"
                   textAnchor="end"
                 >
@@ -239,7 +278,7 @@ export default function CandleChart({
                   y1={label.y}
                   x2={scrollContentWidth}
                   y2={label.y}
-                  stroke={Colors.dark.surfaceBorder}
+                  stroke={colors.surfaceBorder}
                   strokeWidth={0.5}
                   strokeDasharray="4,4"
                 />
@@ -251,7 +290,7 @@ export default function CandleChart({
                   y1={chartMeta.openRateY}
                   x2={scrollContentWidth}
                   y2={chartMeta.openRateY}
-                  stroke={Colors.dark.primary}
+                  stroke={colors.primary}
                   strokeWidth={1}
                   strokeDasharray="6,3"
                   opacity={0.6}
@@ -264,7 +303,7 @@ export default function CandleChart({
                   y1={chartMeta.closeRateY}
                   x2={scrollContentWidth}
                   y2={chartMeta.closeRateY}
-                  stroke={Colors.dark.warning}
+                  stroke={colors.warning}
                   strokeWidth={1}
                   strokeDasharray="6,3"
                   opacity={0.6}
@@ -278,7 +317,7 @@ export default function CandleChart({
                     y1={PADDING_TOP}
                     x2={chartMeta.entryX}
                     y2={height - PADDING_BOTTOM}
-                    stroke={Colors.dark.primary}
+                    stroke={colors.primary}
                     strokeWidth={1}
                     strokeDasharray="4,3"
                   />
@@ -288,7 +327,7 @@ export default function CandleChart({
                     width={36}
                     height={14}
                     rx={4}
-                    fill={Colors.dark.primary}
+                    fill={colors.primary}
                   />
                   <SvgText x={chartMeta.entryX} y={PADDING_TOP + 12} fill="#fff" fontSize={8} textAnchor="middle">
                     Entry
@@ -303,7 +342,7 @@ export default function CandleChart({
                     y1={PADDING_TOP}
                     x2={chartMeta.exitX}
                     y2={height - PADDING_BOTTOM}
-                    stroke={Colors.dark.warning}
+                    stroke={colors.warning}
                     strokeWidth={1}
                     strokeDasharray="4,3"
                   />
@@ -313,7 +352,7 @@ export default function CandleChart({
                     width={28}
                     height={14}
                     rx={4}
-                    fill={Colors.dark.warning}
+                    fill={colors.warning}
                   />
                   <SvgText x={chartMeta.exitX} y={PADDING_TOP + 30} fill="#06111A" fontSize={8} textAnchor="middle">
                     Exit
@@ -331,7 +370,7 @@ export default function CandleChart({
               />
 
               {chartMeta.bars.map((bar, index) => {
-                const color = bar.isGreen ? Colors.dark.profit : Colors.dark.loss;
+                    const color = bar.isGreen ? colors.profit : colors.loss;
                 const centerX = bar.x + CANDLE_WIDTH / 2;
                 return (
                   <G key={`candle-${index}`}>
@@ -341,7 +380,7 @@ export default function CandleChart({
                         y={0}
                         width={CANDLE_STEP}
                         height={height}
-                        fill={Colors.dark.surfaceLight}
+                        fill={colors.surfaceLight}
                         opacity={0.6}
                       />
                     ) : null}
@@ -372,9 +411,9 @@ export default function CandleChart({
                 <SvgText
                   key={`time-${index}`}
                   x={label.x}
-                  y={height - 8}
-                  fill={Colors.dark.textMuted}
-                  fontSize={8}
+                  y={height - 10}
+                  fill={colors.textMuted}
+                  fontSize={7}
                   textAnchor="middle"
                 >
                   {label.label}
@@ -385,7 +424,7 @@ export default function CandleChart({
         </View>
       </View>
 
-      <Text style={styles.hint}>Slide left and right to inspect candles</Text>
+      <Text style={[styles.hint, { color: colors.textMuted }]}>Slide left and right to inspect candles</Text>
     </View>
   );
 }

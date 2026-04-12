@@ -28,7 +28,7 @@ export const useAppearanceStore = create<AppearanceStoreState>((set) => ({
       ]);
 
       set({
-        themeMode: savedTheme === 'amoled' ? 'amoled' : 'dark',
+        themeMode: savedTheme === 'light' ? 'light' : 'dark',
         fontScale:
           savedFontScale === 'small' || savedFontScale === 'large' || savedFontScale === 'normal'
             ? savedFontScale

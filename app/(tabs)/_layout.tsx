@@ -7,6 +7,7 @@ import { getScaledFontSize, getThemeColors } from '@/constants/Colors';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { haptics } from '@/src/utils/haptics';
 
 const AnimatedTabBarButton = (props: any) => {
   const { children, onPress } = props;
@@ -35,7 +36,10 @@ const AnimatedTabBarButton = (props: any) => {
       {...props}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      onPress={onPress}
+      onPress={async (event) => {
+        await haptics.selection();
+        onPress?.(event);
+      }}
       style={[props.style, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}
     >
       <Animated.View style={{ transform: [{ scale }], alignItems: 'center', justifyContent: 'center' }}>

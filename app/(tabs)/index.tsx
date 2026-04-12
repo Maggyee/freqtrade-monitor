@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,10 +19,10 @@ import {
   getScaledFontSize,
   getThemeColors,
 } from '@/constants/Colors';
+import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useBotStore } from '@/src/stores/useBotStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
-import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
-import { toDisplayProfitPercent } from '../../src/utils/profit';
+import { toDisplayProfitPercent } from '@/src/utils/profit';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -32,6 +32,7 @@ export default function DashboardScreen() {
   const colors = getThemeColors(themeMode);
   const fs = (size: keyof typeof FontSize | number) => getScaledFontSize(size, fontScale);
   const t = (zh: string, en: string) => (language === 'en' ? en : zh);
+
   const {
     isConnected,
     isLoading,
@@ -47,6 +48,7 @@ export default function DashboardScreen() {
     stopBot,
     error,
   } = useBotStore();
+
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [isStoppingBot, setIsStoppingBot] = useState(false);
   const hasSavedConnection = !!server || servers.length > 0;
@@ -86,7 +88,7 @@ export default function DashboardScreen() {
         </Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary, fontSize: fs('md') }]}>
           {hasSavedConnection
-            ? t('检测到已保存的连接，正在自动重连。', 'A saved bot was found and is reconnecting automatically.')
+            ? t('检测到已保存连接，正在自动重连。', 'A saved bot was found and is reconnecting automatically.')
             : t('先连接你的机器人，再查看资产和交易状态。', 'Connect your bot to see balances and trades.')}
         </Text>
         {hasSavedConnection ? (
@@ -106,13 +108,31 @@ export default function DashboardScreen() {
 
   const todayProfit = dailyProfit?.data?.[0];
   const totalBalance = balance?.total ?? 0;
-  const stakeCurrency = balance?.stake ?? 'USDT';
+  const stakeCurrency = balance?.stake ?? botState?.stake_currency ?? 'USDT';
   const totalProfitPct = profit?.profit_all_percent ?? 0;
   const totalProfitAbs = profit?.profit_all_coin ?? 0;
   const todayPnlAbs = todayProfit?.abs_profit ?? 0;
   const todayPnlPct = (todayProfit?.rel_profit ?? 0) * 100;
   const isProfitable = totalProfitAbs >= 0;
   const isTodayProfit = todayPnlAbs >= 0;
+  const strategyName = botState?.strategy ?? '-';
+  const timeframe = botState?.timeframe ?? '-';
+  const modeLabel = botState?.trading_mode ?? botState?.runmode ?? '-';
+
+  const strategySummary = useMemo(
+    () => [
+      { label: t('策略', 'Strategy'), value: strategyName },
+      { label: t('周期', 'Timeframe'), value: timeframe },
+      { label: t('交易所', 'Exchange'), value: botState?.exchange ?? '-' },
+      { label: t('模式', 'Mode'), value: modeLabel },
+      { label: t('计价币', 'Stake'), value: botState?.stake_currency ?? stakeCurrency ?? '-' },
+      {
+        label: t('最大开仓', 'Max Open'),
+        value: typeof botState?.max_open_trades === 'number' ? String(botState.max_open_trades) : '-',
+      },
+    ],
+    [botState?.exchange, botState?.max_open_trades, botState?.stake_currency, modeLabel, stakeCurrency, strategyName, t, timeframe],
+  );
 
   return (
     <ScrollView
@@ -128,7 +148,12 @@ export default function DashboardScreen() {
       }
     >
       {error ? (
-        <View style={[styles.errorBanner, { borderColor: `${colors.warning}33`, backgroundColor: `${colors.warning}12` }]}>
+        <View
+          style={[
+            styles.errorBanner,
+            { borderColor: `${colors.warning}33`, backgroundColor: `${colors.warning}12` },
+          ]}
+        >
           <Ionicons name="alert-circle" size={16} color={colors.warning} />
           <Text style={[styles.errorText, { color: colors.warning, fontSize: fs('sm') }]}>{error}</Text>
         </View>
@@ -140,7 +165,10 @@ export default function DashboardScreen() {
         </Text>
         <Text style={[styles.heroValue, { color: colors.text, fontSize: fs('hero') }]}>
           {totalBalance.toFixed(2)}
-          <Text style={[styles.heroCurrency, { color: colors.textSecondary, fontSize: fs('lg') }]}> {stakeCurrency}</Text>
+          <Text style={[styles.heroCurrency, { color: colors.textSecondary, fontSize: fs('lg') }]}>
+            {' '}
+            {stakeCurrency}
+          </Text>
         </Text>
         <View style={styles.pnlRow}>
           <Ionicons
@@ -148,7 +176,12 @@ export default function DashboardScreen() {
             size={14}
             color={isTodayProfit ? colors.profit : colors.loss}
           />
-          <Text style={[styles.pnlText, { color: isTodayProfit ? colors.profit : colors.loss, fontSize: fs('sm') }]}>
+          <Text
+            style={[
+              styles.pnlText,
+              { color: isTodayProfit ? colors.profit : colors.loss, fontSize: fs('sm') },
+            ]}
+          >
             {isTodayProfit ? '+' : ''}
             {todayPnlAbs.toFixed(2)} ({isTodayProfit ? '+' : ''}
             {todayPnlPct.toFixed(1)}%)
@@ -161,7 +194,7 @@ export default function DashboardScreen() {
 
       <View style={[styles.statusCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
         <View style={styles.statusHeader}>
-          <View>
+          <View style={styles.statusInfo}>
             <Text style={[styles.cardLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
               {t('机器人状态', 'Bot Status')}
             </Text>
@@ -176,7 +209,49 @@ export default function DashboardScreen() {
                 {botState?.state === 'running' ? t('运行中', 'Running') : t('已停止', 'Stopped')}
               </Text>
             </View>
+            <View style={styles.strategyRow}>
+              <View
+                style={[
+                  styles.strategyBadge,
+                  { backgroundColor: colors.primaryBg, borderColor: `${colors.primary}33` },
+                ]}
+              >
+                <Ionicons name="flash" size={12} color={colors.primary} />
+                <Text style={[styles.strategyBadgeText, { color: colors.primary, fontSize: fs('xs') }]}>
+                  {strategyName}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.strategyBadge,
+                  { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder },
+                ]}
+              >
+                <Ionicons name="time-outline" size={12} color={colors.textSecondary} />
+                <Text style={[styles.strategyBadgeText, { color: colors.textSecondary, fontSize: fs('xs') }]}>
+                  {timeframe}
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.strategyDetailCard,
+                { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder },
+              ]}
+            >
+              {strategySummary.map((item) => (
+                <View key={item.label} style={styles.strategyDetailRow}>
+                  <Text style={[styles.strategyDetailLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+                    {item.label}
+                  </Text>
+                  <Text style={[styles.strategyDetailValue, { color: colors.text, fontSize: fs('sm') }]}>
+                    {item.value}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
+
           <View style={styles.statusProfitBox}>
             <Text style={[styles.cardLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
               {t('累计收益', 'Total P&L')}
@@ -198,7 +273,10 @@ export default function DashboardScreen() {
             style={[
               styles.controlButton,
               { backgroundColor: colors.surfaceLight, borderColor: colors.surfaceBorder },
-              botState?.state === 'running' && { borderColor: colors.primary, backgroundColor: colors.primaryBg },
+              botState?.state === 'running' && {
+                borderColor: colors.primary,
+                backgroundColor: colors.primaryBg,
+              },
             ]}
             onPress={handleStartBot}
             disabled={isStartingBot || isStoppingBot || botState?.state === 'running'}
@@ -263,18 +341,30 @@ export default function DashboardScreen() {
 
       <View style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.text, fontSize: fs('xl') }]}>{profit?.trade_count ?? 0}</Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('总交易', 'Trades')}</Text>
+          <Text style={[styles.statValue, { color: colors.text, fontSize: fs('xl') }]}>
+            {profit?.trade_count ?? 0}
+          </Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('总交易', 'Trades')}
+          </Text>
         </View>
         <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.profit, fontSize: fs('xl') }]}>{profit?.winning_trades ?? 0}</Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('盈利', 'Wins')}</Text>
+          <Text style={[styles.statValue, { color: colors.profit, fontSize: fs('xl') }]}>
+            {profit?.winning_trades ?? 0}
+          </Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('盈利', 'Wins')}
+          </Text>
         </View>
         <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: colors.loss, fontSize: fs('xl') }]}>{profit?.losing_trades ?? 0}</Text>
-          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>{t('亏损', 'Losses')}</Text>
+          <Text style={[styles.statValue, { color: colors.loss, fontSize: fs('xl') }]}>
+            {profit?.losing_trades ?? 0}
+          </Text>
+          <Text style={[styles.statLabel, { color: colors.textMuted, fontSize: fs('xs') }]}>
+            {t('亏损', 'Losses')}
+          </Text>
         </View>
         <View style={[styles.statDivider, { backgroundColor: colors.surfaceBorder }]} />
         <View style={styles.statItem}>
@@ -334,8 +424,7 @@ export default function DashboardScreen() {
                   {trade.pair.replace(':', ' / ')}
                 </Text>
                 <Text style={[styles.pairMeta, { color: colors.textMuted, fontSize: fs('xs') }]}>
-                  {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')} · {trade.leverage}x{' '}
-                  {t('杠杆', 'Leverage')}
+                  {trade.is_short ? t('做空', 'Short') : t('做多', 'Long')} · {trade.leverage}x {t('杠杆', 'Leverage')}
                 </Text>
               </View>
 
@@ -424,6 +513,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: Spacing.lg,
+    gap: Spacing.md,
+  },
+  statusInfo: {
+    flex: 1,
   },
   cardLabel: {
     fontWeight: '600',
@@ -441,6 +534,46 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
+    fontWeight: '700',
+  },
+  strategyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  strategyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+  strategyBadgeText: {
+    fontWeight: '600',
+  },
+  strategyDetailCard: {
+    marginTop: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    gap: 6,
+  },
+  strategyDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  strategyDetailLabel: {
+    fontWeight: '600',
+  },
+  strategyDetailValue: {
+    flex: 1,
+    textAlign: 'right',
     fontWeight: '700',
   },
   statusProfitBox: {

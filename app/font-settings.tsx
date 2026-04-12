@@ -12,6 +12,7 @@ import {
 } from '@/constants/Colors';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { haptics } from '@/src/utils/haptics';
 
 const options: FontScale[] = ['small', 'normal', 'large'];
 
@@ -43,9 +44,11 @@ export default function FontSettingsScreen() {
 
   const saveScale = async (next: FontScale) => {
     if (isSaving || next === fontScale) return;
+    await haptics.selection();
     setIsSaving(true);
     try {
       await setFontScale(next);
+      await haptics.success();
     } finally {
       setIsSaving(false);
     }

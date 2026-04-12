@@ -11,6 +11,7 @@ import {
 } from '@/constants/Colors';
 import { useAppearanceStore } from '@/src/stores/useAppearanceStore';
 import { useI18nStore } from '@/src/stores/useI18nStore';
+import { haptics } from '@/src/utils/haptics';
 
 export default function ThemeSettingsScreen() {
   const language = useI18nStore((s) => s.language);
@@ -23,11 +24,13 @@ export default function ThemeSettingsScreen() {
 
   const [isSaving, setIsSaving] = React.useState(false);
 
-  const applyTheme = async (mode: 'dark' | 'amoled') => {
+  const applyTheme = async (mode: 'dark' | 'light') => {
     if (isSaving || mode === themeMode) return;
+    await haptics.selection();
     setIsSaving(true);
     try {
       await setThemeMode(mode);
+      await haptics.success();
     } finally {
       setIsSaving(false);
     }
@@ -44,18 +47,23 @@ export default function ThemeSettingsScreen() {
     );
   }
 
-  const previewModes: Array<{ key: 'dark' | 'amoled'; icon: keyof typeof Ionicons.glyphMap; title: string; subtitle: string }> = [
+  const previewModes: Array<{
+    key: 'dark' | 'light';
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    subtitle: string;
+  }> = [
     {
       key: 'dark',
       icon: 'moon-outline',
       title: t('深色主题', 'Deep Dark'),
-      subtitle: t('更柔和的深蓝黑界面，适合长时间查看。', 'A softer navy-black palette for long sessions.'),
+      subtitle: t('更柔和的深色界面，适合长时间查看。', 'A softer dark palette for long sessions.'),
     },
     {
-      key: 'amoled',
-      icon: 'contrast-outline',
-      title: t('纯黑主题', 'AMOLED Black'),
-      subtitle: t('更高对比度，更纯的黑色背景。', 'Higher contrast with a true-black background.'),
+      key: 'light',
+      icon: 'sunny-outline',
+      title: t('浅色主题', 'Light'),
+      subtitle: t('明亮的白色界面，白天查看更轻松。', 'A bright white palette that feels cleaner in daylight.'),
     },
   ];
 
@@ -66,12 +74,12 @@ export default function ThemeSettingsScreen() {
           {t('实时预览', 'Live Preview')}
         </Text>
         <Text style={[styles.previewTitle, { color: colors.text, fontSize: getScaledFontSize('xl', fontScale) }]}>
-          {t('主题会立即应用到导航和设置页', 'Theme updates apply immediately')}
+          {t('主题会立即应用到导航和页面', 'Theme updates apply immediately')}
         </Text>
         <View style={styles.previewMetrics}>
           <View style={[styles.metricPill, { backgroundColor: colors.primaryBg }]}>
             <Text style={[styles.metricText, { color: colors.primary, fontSize: getScaledFontSize('xs', fontScale) }]}>
-              {themeMode === 'amoled' ? 'AMOLED' : 'DARK'}
+              {themeMode === 'light' ? 'LIGHT' : 'DARK'}
             </Text>
           </View>
           <View style={[styles.metricPill, { backgroundColor: colors.profitBg }]}>

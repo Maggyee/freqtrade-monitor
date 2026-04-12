@@ -1,4 +1,4 @@
-export type ThemeMode = 'dark' | 'amoled';
+export type ThemeMode = 'dark' | 'light';
 export type FontScale = 'small' | 'normal' | 'large';
 
 const darkPalette = {
@@ -34,25 +34,42 @@ const darkPalette = {
   gradientEnd: 'rgba(87, 165, 255, 0.02)',
 } as const;
 
-const amoledPalette = {
-  ...darkPalette,
-  background: '#000000',
-  surface: '#050505',
-  surfaceLight: '#0B0B0B',
-  surfaceHighlight: '#111827',
-  surfaceBorder: '#141414',
-  text: '#F8FAFC',
-  textSecondary: '#A8B3C2',
-  textMuted: '#64748B',
-  tabBar: '#020202',
-  overlay: 'rgba(0, 0, 0, 0.82)',
-  gradientStart: 'rgba(87, 165, 255, 0.12)',
-  gradientEnd: 'rgba(87, 165, 255, 0.01)',
+const lightPalette = {
+  background: '#F4F7FB',
+  surface: '#FFFFFF',
+  surfaceLight: '#EEF3F9',
+  surfaceHighlight: '#E3ECF7',
+  surfaceBorder: '#D6E0EC',
+  text: '#102033',
+  textSecondary: '#4B6078',
+  textMuted: '#7A8EA5',
+  primary: '#2D7FF9',
+  primaryLight: '#5A9BFF',
+  primaryDark: '#1F67CF',
+  primaryBg: 'rgba(45, 127, 249, 0.12)',
+  profit: '#0E9F6E',
+  profitLight: '#22C58B',
+  profitBg: 'rgba(14, 159, 110, 0.12)',
+  loss: '#E5484D',
+  lossLight: '#F26A6D',
+  lossBg: 'rgba(229, 72, 77, 0.12)',
+  riskAllow: '#0E9F6E',
+  riskReduce: '#F59E0B',
+  riskBlock: '#E5484D',
+  warning: '#F59E0B',
+  info: '#0EA5E9',
+  success: '#0E9F6E',
+  tabBar: '#FFFFFF',
+  tabIconDefault: '#7A8EA5',
+  tabIconSelected: '#2D7FF9',
+  overlay: 'rgba(15, 23, 42, 0.32)',
+  gradientStart: 'rgba(45, 127, 249, 0.14)',
+  gradientEnd: 'rgba(45, 127, 249, 0.03)',
 } as const;
 
 export const Colors = {
   dark: darkPalette,
-  amoled: amoledPalette,
+  light: lightPalette,
 } as const;
 
 export type AppColors = {
@@ -60,7 +77,7 @@ export type AppColors = {
 };
 
 export const getThemeColors = (mode: ThemeMode = 'dark'): AppColors =>
-  mode === 'amoled' ? Colors.amoled : Colors.dark;
+  mode === 'light' ? Colors.light : Colors.dark;
 
 const baseFontSize = {
   xs: 10,

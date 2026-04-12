@@ -34,8 +34,13 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-notifications"
     ],
+    "extra": {
+      "adminApiUser": "freqtrade-admin",
+      "adminApiPassword": "FtAdmin_2026_N!shiki"
+    },
     "experiments": {
       "typedRoutes": true
     }

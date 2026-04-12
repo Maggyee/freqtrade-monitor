@@ -106,7 +106,7 @@ export async function fetchExchangeCandlesWindow(
 
     const candleMs = timeframeToMs(timeframe);
     const span = Math.max(candleMs, endTime - startTime);
-    const targetCount = Math.max(120, Math.ceil(span / candleMs) + 24);
+    const targetCount = Math.max(180, Math.ceil(span / candleMs) + 48);
     const allCandles: CandleData[] = [];
     let cursor = startTime;
     let remaining = targetCount;
@@ -516,8 +516,9 @@ class FreqtradeClient {
             // 解析时间戳：优先用 __date_ts（秒级），否则用 date 字符串解析
             let timestamp: number;
             if (dateTsIdx !== -1) {
-                // __date_ts 是秒级时间戳，转换为毫秒
-                timestamp = Number(row[dateTsIdx]) * 1000;
+                // Some backends return __date_ts in seconds, others already return milliseconds.
+                const rawTimestamp = Number(row[dateTsIdx]);
+                timestamp = rawTimestamp > 1e12 ? rawTimestamp : rawTimestamp * 1000;
             } else {
                 // date 是 datetime 字符串，解析为毫秒时间戳
                 timestamp = new Date(String(row[dateIdx])).getTime();
